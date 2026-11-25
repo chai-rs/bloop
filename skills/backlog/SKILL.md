@@ -119,6 +119,15 @@ If the intent also needs a new endpoint or event, say that `/bloop:contract` has
 
 For each piece of work being opened, create `.bloop/issues/<YYYY-MM-DD>-<slug>/issue.md` from `templates/issue.md`.
 
+Set `KIND` on its second line:
+
+| `KIND` | When |
+| --- | --- |
+| `bug` | Something that worked, or was meant to work, is broken. `/bloop:auto` sends these to `/bloop:debug` before `restate` |
+| `request` | Everything else |
+
+When `debug`, `watch` or `fuzz-swarm` asks you to open the issue, it is always `bug`.
+
 The date is today. The slug is lowercase English separated by hyphens, short but saying what the work is, usable directly as a branch name.
 
 If a slug collides on the same day, add a distinguishing word. Never add a counter.

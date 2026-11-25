@@ -102,7 +102,7 @@ Merge everything into one file at `.bloop/fuzz/<YYYY-MM-DD>-<target>.md`, from `
 
 ## Step 6 · Open the issues
 
-One issue per confirmed finding, through `/bloop:backlog`, with `FR: none` because this did not come from a requirement.
+One issue per confirmed finding, through `/bloop:backlog`, with `FR: none` because this did not come from a requirement, and `KIND: bug`.
 
 The issue body carries the dimension, the input, the command and the result. `restate` still decides whether it is worth taking. **Finding something does not make it worth fixing.**
 

@@ -39,7 +39,7 @@ The fix goes through box 3 Planning to box 5 Review like any other work. That wa
 
 | What you find | What to do |
 | --- | --- |
-| A bug report with no issue yet | Open one through `/bloop:backlog` with `FR: none`, then work in its folder |
+| A bug report with no issue yet | Open one through `/bloop:backlog` with `FR: none` and `KIND: bug`, then work in its folder |
 | An issue id in box 2 Issue/Story/Task | Work in that folder. `watch` and `fuzz-swarm` open issues this way |
 | An issue id in box 4 Build, sent by the correction ladder | Work in that folder. At the end, hand back to `build`, not to `restate` |
 | `debug.md` already exists | Continue from its `STATUS` and `ROUNDS`. Do not start over |

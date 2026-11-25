@@ -62,7 +62,7 @@ For each signal, in order:
 1. **Say what you saw first**, in one sentence, before any recommendation
 2. Show `deliver.rollbackCommand` in full, with the `what it cannot undo` line from `deliver.md` beside it
 3. Ask. On a yes, run it, then write `ROLLED-BACK-AT`
-4. Open an issue through `/bloop:backlog` with `FR: none`, carrying the signal, the number and the deploy it followed
+4. Open an issue through `/bloop:backlog` with `FR: none` and `KIND: bug`, carrying the signal, the number and the deploy it followed
 
 The new issue goes through boxes 2 to 5 like anything else. **A rollback is not a fix**, and the issue is what remembers that.
 

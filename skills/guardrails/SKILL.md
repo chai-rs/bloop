@@ -195,7 +195,8 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
   "baseBranch": "main",
   "concurrency": 2,
   "trustLevel": "review-before-merge",
-  "revertCeiling": 0.05
+  "revertCeiling": 0.05,
+  "autoBudget": 12
 }
 ```
 
@@ -206,6 +207,7 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
 | `concurrency` | How many agents run at once, in box 5 Review's lenses and in `fuzz-swarm` | 2 |
 | `trustLevel` | How far the loop may go without a human. See below | `review-before-merge` |
 | `revertCeiling` | The share of landings that may be reverts before `bin/trust` says no | `0.05` |
+| `autoBudget` | How many skill runs one `/bloop:auto` call may make, across every issue it takes, before it stops and reports | 12 |
 
 **One number, used in two places.** `maxRounds` caps both the correction ladder in box 4 Build and the review rounds in box 5 Review. Two separate numbers would mean two things to remember and two to tune.
 
