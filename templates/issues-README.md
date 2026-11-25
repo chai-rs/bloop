@@ -43,7 +43,12 @@ The first line of each file is machine-readable state. `intake.md` starts with `
 | `decision.md` starting `ESCALATE` | box 5 Review, waiting on a human |
 | `decision.md` starting `APPROVE` | box 5 Review done, box 6 Deliver can start |
 
-Run the plugin's `bin/job` to read this table for you instead of walking the folders yourself.
+Run the plugin's `bin/job` to read this table for you instead of walking the folders yourself. Its `skill` field names the skill that moves each issue on, which is what `/bloop:auto` runs.
+
+Two more files can sit in an issue folder:
+
+* `issue.md` carries `KIND: bug` or `KIND: request` on its second line. A `bug` with no finished `debug.md` goes to `/bloop:debug` before `restate`
+* `auto.md` is written by `/bloop:auto`. Its first line, `WAITING:`, holds a question a run left for a person. While it is not `none`, the issue sits in `0-waiting` on the board and `--next` skips it
 
 ## The board, and the archive
 

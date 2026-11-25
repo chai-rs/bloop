@@ -10,6 +10,7 @@
 #   bin/job --all        the same, plus the archived ones
 #   bin/job --brief      one line, for the hook
 #   bin/job --board      rebuild the board: one folder per state, holding symlinks
+#   bin/job --next       print the id of the next issue /bloop:auto should run, or nothing
 #   bin/job <issue-id>   JSON for a single issue, open or archived
 #
 # The board is a view, never the truth. It is rebuilt from the files every time
@@ -245,11 +246,47 @@ bad_paths() {
       done
 }
 
+# What /bloop:auto runs next for the issue classify just read, and whether a
+# person owes it an answer. A script decides this, so the agent never guesses
+# which skill comes next.
+route() {
+  d=$1
+  KIND=$(header "$d/issue.md" KIND)
+  DEBUG=$(header "$d/debug.md" STATUS)
+  case "$STATE" in
+    no-intake)
+      if [ "$KIND" = bug ] && { [ -z "$DEBUG" ] || [ "$DEBUG" = OPEN ]; }; then
+        SKILL=debug; NEXT='a bug with no proven cause yet, run /bloop:debug before /bloop:restate'
+      else
+        SKILL=restate
+      fi ;;
+    needs-info|awaiting-restate|awaiting-human|bad-intake) SKILL=restate ;;
+    awaiting-plan|awaiting-approval|bad-context) SKILL=plan ;;
+    planned|building|changes-requested) SKILL=build ;;
+    built|reviewing) SKILL=review ;;
+    approved|delivering) SKILL=deliver ;;
+    deployed) SKILL=watch ;;
+    merged|watched|retro-open) SKILL=retro ;;
+    rolled-back) if [ -f "$d/retro.md" ]; then SKILL=''; else SKILL=retro; fi ;;
+    # blocked, escalated, bad-decision, bad-deliver need a person. done and rejected are over
+    *) SKILL='' ;;
+  esac
+
+  # auto.md holds the question a run could not ask. Quotes would break the JSON.
+  WAITING=$(header "$d/auto.md" WAITING | tr '"\\' "''")
+  [ "$WAITING" = none ] && WAITING=''
+  if [ -n "$WAITING" ]; then
+    NEXT="waiting on a person: $WAITING · run /bloop:auto $(basename "$d") to answer"
+  fi
+}
+
+describe() { classify "$1"; route "$1"; }
+
 emit_one() {
   d=$1
   archived=$2
   id=$(basename "$d")
-  classify "$d"
+  describe "$d"
   files=$(ls "$d" 2>/dev/null | tr '\n' ' ')
   printf '    {\n'
   printf '      "id": %s,\n' "$(jstr "$id")"
@@ -262,6 +299,9 @@ emit_one() {
   printf '      "surfaces": %s,\n' "$(jstr "$SURFACES")"
   printf '      "rescoped": %s,\n' "$(jstr "$RESCOPED")"
   printf '      "type": %s,\n' "$(jstr "$TYPE")"
+  printf '      "kind": %s,\n' "$(jstr "$KIND")"
+  printf '      "skill": %s,\n' "$(jstr "$SKILL")"
+  printf '      "waiting": %s,\n' "$(jstr "$WAITING")"
   printf '      "slices": { "total": %s, "done": %s },\n' "${SLICES:-0}" "${DONE:-0}"
   printf '      "round": %s,\n' "${ROUND:-0}"
   printf '      "reviewer": %s,\n' "$(jstr "$REVIEWER")"
@@ -279,10 +319,15 @@ list_dirs() {
 # order: what waits on a person first, then broken records, then the boxes, whose
 # numbers match the box numbers, then the closed ones.
 board_group() {
+  if [ -n "$WAITING" ]; then echo 0-waiting; return; fi
+  # A low-risk plan approves itself, so nobody is waiting on it
+  if [ "$STATE" = awaiting-approval ] && [ "$RISK" != low ]; then echo 0-waiting; return; fi
   case "$STATE" in
-    needs-info|awaiting-human|awaiting-approval|escalated|blocked) echo 0-waiting ;;
+    needs-info|awaiting-human|escalated|blocked) echo 0-waiting ;;
     bad-*) echo 1-broken ;;
     done) echo 7-done ;;
+    # Rolled back with its retro written: nothing left but the archive
+    rolled-back) if [ -z "$SKILL" ]; then echo 7-done; else echo 6-ship; fi ;;
     rejected) echo 8-rejected ;;
     *)
       case "$BOX" in
@@ -312,7 +357,7 @@ build_board() {
   LINK_BASE="../../$(basename "$ISSUES_DIR")"
   for d in $(list_dirs "$ISSUES_DIR"); do
     id=$(basename "$d")
-    classify "$d"
+    describe "$d"
     g=$(board_group)
     mkdir -p "$BOARD_DIR/$g"
     ln -s "$LINK_BASE/$id" "$BOARD_DIR/$g/$id"
@@ -330,11 +375,13 @@ ONE=''
 BRIEF=0
 ALL=0
 BOARD=0
+NEXTONE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --brief) BRIEF=1 ;;
     --all)   ALL=1 ;;
     --board) BOARD=1 ;;
+    --next)  NEXTONE=1 ;;
     -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
     *)  [ -n "$ONE" ] && { printf 'bloop: one issue at a time\n' >&2; exit 64; }
         ONE=$1 ;;
@@ -344,6 +391,19 @@ done
 
 if [ "$BOARD" = 1 ]; then
   build_board
+  exit 0
+fi
+
+# The issue nearest to done goes first: finishing work beats starting it.
+# Only box 2 to 6 with a skill to run. Waiting and broken ones need a person.
+if [ "$NEXTONE" = 1 ]; then
+  for d in $(list_dirs "$ISSUES_DIR"); do
+    describe "$d"
+    [ -n "$SKILL" ] || continue
+    case "$(board_group)" in
+      [2-6]-*) printf '%s\t%s\n' "$BOX" "$(basename "$d")" ;;
+    esac
+  done | sort -t "$(printf '\t')" -k1,1nr -k2,2 | head -1 | cut -f2
   exit 0
 fi
 
@@ -363,16 +423,18 @@ fi
 ARCHIVED=$(list_dirs "$ARCHIVE_DIR" | wc -l | tr -d ' ')
 
 # CLOSED, not DONE: classify sets DONE to the number of finished slices
-TOTAL=0; OPEN=0; BLOCKED=0; REJECTED=0; READY=0; CLOSED=0
+TOTAL=0; OPEN=0; BLOCKED=0; BROKEN=0; REJECTED=0; READY=0; CLOSED=0
 for d in $(list_dirs "$ISSUES_DIR"); do
   TOTAL=$((TOTAL + 1))
-  classify "$d"
-  case "$STATE" in
-    rejected) REJECTED=$((REJECTED + 1)) ;;
-    needs-info|awaiting-human|awaiting-approval|blocked|escalated) BLOCKED=$((BLOCKED + 1)) ;;
-    approved|merged|deployed|watched) READY=$((READY + 1)) ;;
-    done) CLOSED=$((CLOSED + 1)) ;;
-    *) OPEN=$((OPEN + 1)) ;;
+  describe "$d"
+  # Counted by board folder, so the brief line and the board never disagree
+  case "$(board_group)" in
+    0-waiting)  BLOCKED=$((BLOCKED + 1)) ;;
+    1-broken)   BROKEN=$((BROKEN + 1)) ;;
+    6-ship)     READY=$((READY + 1)) ;;
+    7-done)     CLOSED=$((CLOSED + 1)) ;;
+    8-rejected) REJECTED=$((REJECTED + 1)) ;;
+    *)          OPEN=$((OPEN + 1)) ;;
   esac
 done
 
@@ -380,8 +442,8 @@ if [ "$BRIEF" = 1 ]; then
   if [ "$TOTAL" = 0 ]; then
     printf 'bloop: no open issues in %s · archived %s\n' "$ISSUES_DIR" "$ARCHIVED"
   else
-    printf 'bloop: %s issues · ready to continue %s · waiting on a human %s · in box 6 %s · done %s · rejected %s · archived %s\n' \
-      "$TOTAL" "$OPEN" "$BLOCKED" "$READY" "$CLOSED" "$REJECTED" "$ARCHIVED"
+    printf 'bloop: %s issues · ready to continue %s · waiting on a human %s · broken %s · in box 6 %s · done %s · rejected %s · archived %s\n' \
+      "$TOTAL" "$OPEN" "$BLOCKED" "$BROKEN" "$READY" "$CLOSED" "$REJECTED" "$ARCHIVED"
   fi
   exit 0
 fi
@@ -391,8 +453,8 @@ printf '  "root": %s,\n' "$(jstr "$ROOT")"
 printf '  "provider": %s,\n' "$(jstr "$PROVIDER")"
 printf '  "issuesDir": %s,\n' "$(jstr "$ISSUES_DIR")"
 printf '  "archiveDir": %s,\n' "$(jstr "$ARCHIVE_DIR")"
-printf '  "counts": { "total": %s, "open": %s, "blocked": %s, "ready": %s, "rejected": %s, "archived": %s },\n' \
-  "$TOTAL" "$OPEN" "$BLOCKED" "$READY" "$REJECTED" "$ARCHIVED"
+printf '  "counts": { "total": %s, "open": %s, "blocked": %s, "broken": %s, "ready": %s, "done": %s, "rejected": %s, "archived": %s },\n' \
+  "$TOTAL" "$OPEN" "$BLOCKED" "$BROKEN" "$READY" "$CLOSED" "$REJECTED" "$ARCHIVED"
 printf '  "issues": [\n'
 sep=''
 for d in $(list_dirs "$ISSUES_DIR"); do

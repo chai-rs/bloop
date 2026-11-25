@@ -73,6 +73,8 @@ A clone added with `./path/to/your/clone` loads in place. `git pull` there, then
 /bloop:retro         turn what went wrong into a guardrail, then close the issue
 /bloop:fuzz-swarm    throw generated input at merged code and open issues for what breaks
 /bloop:board         rebuild the issue board by hand, and see what waits on you
+/bloop:auto <id>     run one issue through every box, asking you only where a person must decide
+/bloop:auto --next   work through the board issue by issue, leaving every question for you at the end
 ```
 
 `init` reads the repo before asking anything. If the repo already has something set up, it skips that part and reports what is left.
@@ -83,7 +85,7 @@ A clone added with `./path/to/your/clone` loads in place. `git pull` there, then
 .claude-plugin/plugin.json       the plugin itself
 .claude-plugin/marketplace.json  lets you install it from your own machine
 bin/detect                       reads the repo, returns JSON: what exists, what is missing, where to start
-bin/job                          reads .bloop/issues/, returns JSON: which box each issue is in. --board builds the board view
+bin/job                          reads .bloop/issues/, returns JSON: which box each issue is in and which skill runs next. --board builds the board view, --next names the issue auto takes
 bin/work                         creates the worktree and branch <type>/<issue-id>
 bin/gate                         runs checks.sh and keeps the raw output as evidence
 bin/trust                        measures the revert rate, which is the evidence for raising trustLevel
@@ -106,6 +108,7 @@ references/ui-review.md          the on-screen lens, including accessibility
 templates/adr.md                 one architectural decision, append-only
 templates/fuzz.md                a fuzzing run and what it found
 templates/debug.md               a debugging run: the loop, the hypotheses, the root cause
+templates/auto.md                what /bloop:auto ran on one issue, and the question it is waiting on
 templates/deliver.md             the delivery run, and what a rollback would take
 templates/retro.md               lessons turned into guardrails, with the numbers
 skills/init                      box 1 Architecting: detect, business, skeleton
@@ -131,6 +134,7 @@ skills/watch                     box 6 Deliver: is production behaving, against 
 skills/retro                     box 6 Deliver: lessons into guardrails, then close it
 skills/fuzz-swarm                outside the boxes: fuzz merged code, open an issue per finding
 skills/board                     outside the boxes: rebuild the board, report what waits on a person
+skills/auto                      outside the boxes: run the skill bin/job names, state by state, stop where a person decides
 templates/                       starting files the skills copy, including external/README.md
 docs/                            mermaid diagrams of each bin script
 drafts/                          decision records. Read before changing a skill
