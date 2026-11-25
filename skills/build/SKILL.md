@@ -82,6 +82,7 @@ That many failures mean the problem is not the code, it is a layer below.
 | The check is wrong, testing the wrong thing | Fix the check and tell the user why you changed it |
 | `spec.md` contradicts the real code | Set `STATUS: BLOCKED` and go back to `/bloop:plan` |
 | The project's shape cannot take this work | Set `STATUS: BLOCKED`. This is bigger than one issue and a human decides |
+| Nobody can say which of the above it is | Run `/bloop:debug <issue-id>` before setting anything. Its root cause points to one of the rows above. Never guess the row |
 
 In every case, write what happened under `## Notes for reviewers`.
 

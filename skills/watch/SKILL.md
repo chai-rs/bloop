@@ -66,6 +66,8 @@ For each signal, in order:
 
 The new issue goes through boxes 2 to 5 like anything else. **A rollback is not a fix**, and the issue is what remembers that.
 
+Name `/bloop:debug <new-issue-id>` as its first step, with the deployed commit as the ref to debug from. A production signal says something broke, not why.
+
 ## Step 4 · Leaving the box
 
 Hand over to the last step.

@@ -106,6 +106,8 @@ One issue per confirmed finding, through `/bloop:backlog`, with `FR: none` becau
 
 The issue body carries the dimension, the input, the command and the result. `restate` still decides whether it is worth taking. **Finding something does not make it worth fixing.**
 
+The command is already a feedback loop that goes red, so `/bloop:debug <issue-id>` can start from it when the cause is not obvious from the input.
+
 ## At higher trust levels
 
 | `loop.trustLevel` | What changes |

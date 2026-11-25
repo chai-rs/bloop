@@ -41,6 +41,7 @@ To work on bloop itself, point the marketplace at your own clone instead.
 /bloop:contract      change openapi, the data model, external contracts
 /bloop:guardrails    change lint, tests, checks.sh, CI, git hooks, security
 /bloop:backlog       open issues from the functional requirements, or from a new request
+/bloop:debug         find and prove the cause of a bug, leave a failing check, never fix it
 /bloop:restate       decide whether to take a piece of work, then restate it
 /bloop:plan          turn a confirmed restate into a plan that can be proven
 /bloop:build         write the code one slice at a time, with evidence
@@ -80,12 +81,14 @@ references/ux-review.md          the experience lens, with a 0 to 4 severity sca
 references/ui-review.md          the on-screen lens, including accessibility
 templates/adr.md                 one architectural decision, append-only
 templates/fuzz.md                a fuzzing run and what it found
+templates/debug.md               a debugging run: the loop, the hypotheses, the root cause
 templates/deliver.md             the delivery run, and what a rollback would take
 templates/retro.md               lessons turned into guardrails, with the numbers
 skills/init                      box 1 Architecting: detect, business, skeleton
 skills/contract                  box 1 Architecting: the contract
 skills/guardrails                box 1 Architecting: req 4 to 14
 skills/backlog                   box 2 Issue/Story/Task: open issues from FRs or a new request
+skills/debug                     box 2 Issue/Story/Task: prove the cause of a bug before anyone fixes it
 skills/restate                   box 2 Issue/Story/Task: take the work, then restate it
 skills/interview                 interview in rounds to sharpen a request, called by backlog
 skills/plan                      box 3 Planning: the driver, holding the loops and the gate
