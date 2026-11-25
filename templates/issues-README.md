@@ -45,4 +45,27 @@ The first line of each file is machine-readable state. `intake.md` starts with `
 
 Run the plugin's `bin/job` to read this table for you instead of walking the folders yourself.
 
+## The board, and the archive
+
+Issue folders never move while the work is open. A folder moved on two branches does not merge, and the issue ends up in both places.
+
+To see the work grouped by state, run `bin/job --board`. It builds `.bloop/board/`, one folder per state holding symlinks back to `.bloop/issues/`:
+
+```
+.bloop/board/          gitignored, rebuilt from the files every time
+  waiting-on-human/
+  2-issue-story-task/
+  3-planning/
+  4-build/
+  5-review/
+  6-deliver/
+  done/
+  rejected/
+  broken-record/       a file's header line is unreadable, bin/job says which
+```
+
+Never edit through the board or move anything inside it. The next rebuild throws it away. Once the board exists, the plugin's hooks keep it fresh: at session start, before each prompt, and after any edit under `.bloop/` or any git command that moves the checkout. The rebuild runs in the background, so for a second or so after a change the board can still show the old state.
+
+A closed issue moves once, into `.bloop/archive/<id>/`, through `bin/archive` at the end of `/bloop:retro`. Only on the base branch, only when nothing else can still touch it, and in a commit that holds only the move. `bin/job <id>` and `bin/metrics` still read archived issues. `bin/job --all` lists them.
+
 `.bloop/fuzz/` sits beside `issues/` and holds one file per fuzzing run. Those are not issues: a finding worth acting on becomes an issue of its own.

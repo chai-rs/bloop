@@ -35,7 +35,9 @@ if [ -f "$CONFIG" ]; then
     | sed -n 's/.*"issuesDir":"\([^"]*\)".*/\1/p')
   [ -n "$D" ] && ISSUES_DIR=$D
 fi
-[ -d "$ISSUES_DIR" ] || {
+# Closed issues move here. They still count: they are most of the history.
+ARCHIVE_DIR="$(dirname "$ISSUES_DIR")/archive"
+[ -d "$ISSUES_DIR" ] || [ -d "$ARCHIVE_DIR" ] || {
   printf 'bloop: %s does not exist, so there is nothing to count\n' "$ISSUES_DIR" >&2
   printf 'this only works where the issues live in folders\n' >&2
   exit 1
@@ -48,7 +50,7 @@ header() { sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -1; }
 # Dates stay as YYYY-MM-DD here: turning them into numbers needs integer
 # division that sh does not have, so awk converts them instead.
 ROWS=$(
-  for d in "$ISSUES_DIR"/*/; do
+  for d in "$ISSUES_DIR"/*/ "$ARCHIVE_DIR"/*/; do
     [ -d "$d" ] || continue
     id=$(basename "$d")
     born=$(printf '%s' "$id" | sed -n 's/^\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\).*/\1/p')

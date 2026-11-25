@@ -1,0 +1,107 @@
+#!/bin/sh
+# bloop · bin/archive
+#
+# Moves a closed issue out of the issues folder into the archive, in a commit that
+# holds the move and nothing else.
+#
+# Only on the base branch, in the main checkout, once nothing else can touch the
+# issue. A folder moved on two branches is a rename/rename conflict, and a move
+# mixed with edits stops git from seeing it as a move at all.
+#
+#   bin/archive <issue-id>           say what it would do, change nothing
+#   bin/archive <issue-id> --apply   move it, and commit when the folder is tracked
+set -u
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf 'bloop: this is not a git repo\n' >&2; exit 1
+}
+cd "$ROOT" || exit 1
+
+ISSUE=''
+APPLY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply) APPLY=1 ;;
+    -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
+    *)  [ -n "$ISSUE" ] && { printf 'bloop: one issue at a time\n' >&2; exit 64; }
+        ISSUE=$1 ;;
+  esac
+  shift
+done
+[ -n "$ISSUE" ] || { printf 'usage: bin/archive <issue-id> [--apply]\n' >&2; exit 64; }
+
+CONFIG=.bloop/config.json
+[ -f "$CONFIG" ] || { printf 'bloop: %s does not exist yet\n' "$CONFIG" >&2; exit 1; }
+
+sect() {
+  tr -d ' \n' < "$CONFIG" 2>/dev/null | sed -n "s/.*\"$1\":{\([^}]*\)}.*/\1/p"
+}
+val() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"; }
+
+ISSUES_DIR=$(val "$(sect taskManagement)" issuesDir); [ -n "$ISSUES_DIR" ] || ISSUES_DIR=.bloop/issues
+ARCHIVE_DIR="$(dirname "$ISSUES_DIR")/archive"
+BASE=$(val "$(sect loop)" baseBranch); [ -n "$BASE" ] || BASE=main
+
+FROM="$ISSUES_DIR/$ISSUE"
+TO="$ARCHIVE_DIR/$ISSUE"
+
+refuse() { printf 'bloop: %s\n' "$1" >&2; exit 1; }
+
+if [ -d "$TO" ] && [ ! -d "$FROM" ]; then
+  printf 'bloop: %s is already archived in %s\n' "$ISSUE" "$TO"
+  exit 0
+fi
+[ -d "$FROM" ] || refuse "no issue named $ISSUE in $ISSUES_DIR"
+[ -e "$TO" ] && refuse "$TO already exists. two copies of one issue is the bug this script exists to prevent"
+
+# A linked worktree has its own git dir. Only the main checkout shares the common one.
+[ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] \
+  || refuse "run this from the main checkout, not a worktree"
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+[ "$BRANCH" = "$BASE" ] \
+  || refuse "on $BRANCH, not $BASE. archive only on the base branch, where no other branch moves the folder"
+
+STATE=$("$(dirname "$0")/job" "$ISSUE" 2>/dev/null | sed -n 's/^ *"state": "\([^"]*\)".*/\1/p')
+case "$STATE" in
+  done|rejected) ;;
+  rolled-back)
+    [ -f "$FROM/retro.md" ] || refuse "rolled back, but retro.md does not exist yet. run /bloop:retro first"
+    ;;
+  '') refuse "bin/job could not read $ISSUE" ;;
+  *)  refuse "state is $STATE. only done, rejected, or rolled-back with a retro.md can be archived" ;;
+esac
+
+# A branch still open for this issue would move the files back on its next merge.
+if git worktree list --porcelain | grep -qE "^worktree .*/\.worktrees/(debug-)?$ISSUE\$"; then
+  refuse "a worktree for $ISSUE still exists. remove it first, after checking nothing in it is unmerged"
+fi
+
+TRACKED=false
+[ -n "$(git ls-files -- "$FROM" | head -1)" ] && TRACKED=true
+
+if [ "$TRACKED" = true ]; then
+  [ -z "$(git status --porcelain -- "$FROM")" ] \
+    || refuse "$FROM has uncommitted changes. commit them first, so the archive commit holds only the move"
+  git diff --cached --quiet \
+    || refuse "something else is staged. the archive commit must hold only the move"
+fi
+
+COMMIT=none
+if [ "$APPLY" = 1 ]; then
+  mkdir -p "$ARCHIVE_DIR"
+  if [ "$TRACKED" = true ]; then
+    git mv "$FROM" "$TO" || refuse "git mv failed"
+    git commit -q -m "chore(bloop): archive $ISSUE" || {
+      git mv "$TO" "$FROM"
+      refuse "the commit failed, so the move was put back"
+    }
+    COMMIT=$(git rev-parse --short HEAD)
+  else
+    mv "$FROM" "$TO" || refuse "mv failed"
+  fi
+fi
+
+applied=false; [ "$APPLY" = 1 ] && applied=true
+printf '{"issue":"%s","state":"%s","from":"%s","to":"%s","tracked":%s,"applied":%s,"commit":"%s"}\n' \
+  "$ISSUE" "$STATE" "$FROM" "$TO" "$TRACKED" "$applied" "$COMMIT"
