@@ -72,6 +72,7 @@ A clone added with `./path/to/your/clone` loads in place. `git pull` there, then
 /bloop:watch         check production after a deploy, against the signals written before it
 /bloop:retro         turn what went wrong into a guardrail, then close the issue
 /bloop:fuzz-swarm    throw generated input at merged code and open issues for what breaks
+/bloop:board         rebuild the issue board by hand, and see what waits on you
 ```
 
 `init` reads the repo before asking anything. If the repo already has something set up, it skips that part and reports what is left.
@@ -129,6 +130,7 @@ skills/deliver                   box 6 Deliver: sync, re-gate, decide the merge,
 skills/watch                     box 6 Deliver: is production behaving, against the signals named earlier
 skills/retro                     box 6 Deliver: lessons into guardrails, then close it
 skills/fuzz-swarm                outside the boxes: fuzz merged code, open an issue per finding
+skills/board                     outside the boxes: rebuild the board, report what waits on a person
 templates/                       starting files the skills copy, including external/README.md
 docs/                            mermaid diagrams of each bin script
 drafts/                          decision records. Read before changing a skill
