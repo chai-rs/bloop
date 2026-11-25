@@ -53,15 +53,15 @@ To see the work grouped by state, run `bin/job --board`. It builds `.bloop/board
 
 ```
 .bloop/board/          gitignored, rebuilt from the files every time
-  waiting-on-human/
-  2-issue-story-task/
-  3-planning/
-  4-build/
-  5-review/
-  6-deliver/
-  done/
-  rejected/
-  broken-record/       a file's header line is unreadable, bin/job says which
+  0-waiting/           waiting on a person: an answer, a signature, an approval
+  1-broken/            a file's header line is unreadable, bin/job says which
+  2-intake/            box 2 Issue/Story/Task
+  3-plan/              box 3 Planning
+  4-build/             box 4 Build
+  5-review/            box 5 Review
+  6-ship/              box 6 Deliver
+  7-done/              closed, not yet archived
+  8-rejected/          not taken
 ```
 
 Never edit through the board or move anything inside it. The next rebuild throws it away. Once the board exists, the plugin's hooks keep it fresh: at session start, before each prompt, and after any edit under `.bloop/` or any git command that moves the checkout. The rebuild runs in the background, so for a second or so after a change the board can still show the old state.

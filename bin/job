@@ -275,21 +275,22 @@ list_dirs() {
   find "$1" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
 }
 
-# The board folder an issue belongs in. A person scanning the board wants
-# to know first what is waiting on them, then where the rest of the work is.
+# The board folder an issue belongs in. Every folder is numbered so ls keeps this
+# order: what waits on a person first, then broken records, then the boxes, whose
+# numbers match the box numbers, then the closed ones.
 board_group() {
   case "$STATE" in
-    needs-info|awaiting-human|awaiting-approval|escalated|blocked) echo waiting-on-human ;;
-    bad-*) echo broken-record ;;
-    done) echo done ;;
-    rejected) echo rejected ;;
+    needs-info|awaiting-human|awaiting-approval|escalated|blocked) echo 0-waiting ;;
+    bad-*) echo 1-broken ;;
+    done) echo 7-done ;;
+    rejected) echo 8-rejected ;;
     *)
       case "$BOX" in
-        2) echo 2-issue-story-task ;;
-        3) echo 3-planning ;;
+        2) echo 2-intake ;;
+        3) echo 3-plan ;;
         4) echo 4-build ;;
         5) echo 5-review ;;
-        *) echo 6-deliver ;;
+        *) echo 6-ship ;;
       esac ;;
   esac
 }
@@ -318,7 +319,7 @@ build_board() {
   done
 
   printf 'bloop: board rebuilt in %s\n' "$BOARD_DIR"
-  for g in waiting-on-human broken-record 2-issue-story-task 3-planning 4-build 5-review 6-deliver done rejected; do
+  for g in 0-waiting 1-broken 2-intake 3-plan 4-build 5-review 6-ship 7-done 8-rejected; do
     [ -d "$BOARD_DIR/$g" ] || continue
     n=$(find "$BOARD_DIR/$g" -mindepth 1 -maxdepth 1 -type l | wc -l | tr -d ' ')
     printf '  %-20s %s\n' "$g" "$n"
