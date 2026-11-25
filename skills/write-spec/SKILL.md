@@ -21,9 +21,10 @@ Step 2 of box 3 Planning. You are the one who goes and reads the real thing, the
 
 1. `intake.md` for `RISK`, `SURFACES` and why the work was taken
 2. `restate.md` for the scope the human confirmed
-3. `AGENTS.md` and `ARCHITECTURE.md`, only the parts covering this area
-4. `openapi.yaml` if this work involves the API
-5. **The real code.** Find the actual files and components, do not guess at names
+3. `debug.md` when there is one. The paths in `## Root cause` are the first rows of `## Context`, and `REPRO` passing is the first acceptance criterion. The probe it describes is evidence, not the fix. Choose the fix yourself
+4. `AGENTS.md` and `ARCHITECTURE.md`, only the parts covering this area
+5. `openapi.yaml` if this work involves the API
+6. **The real code.** Find the actual files and components, do not guess at names
 
 ## `## Context` is the heart of this skill
 

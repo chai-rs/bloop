@@ -36,6 +36,7 @@ A check has to be specific enough that someone else runs it and gets the same re
 Order them so each one proves the next is possible.
 
 * If this work touches a contract, **the first slice is the contract change**, with human approval. Not code first
+* If the issue has a `debug.md` with a `CHECK`, **the first code slice turns that check green**. Its check column is the `REPRO` command, quoted exactly. The check already exists and is already red, so nobody writes a new one
 * If it needs a new type, the type and signatures come before the logic
 * Put the riskiest piece early, so a wrong plan shows up fast instead of halfway through
 

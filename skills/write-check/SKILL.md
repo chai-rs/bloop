@@ -18,6 +18,14 @@ This is not ceremony. A check written after the code describes what the code doe
 
 Step 3 is the one people skip. **You have to see the failure with your own eyes**, not assume it would fail.
 
+## When `debug` already wrote it
+
+If this slice's check is the `REPRO` command from `debug.md`, the check exists already. **Do not write a new one.**
+
+1. Copy `.bloop/issues/<id>/repro/<CHECK path>.txt` to `<CHECK path>` in the worktree, dropping the `.txt`
+2. Run it and watch it fail, the same as step 3 above. Compare the failure with `repro/red.txt`
+3. **It passes?** The base moved since `debug` ran, or the bug is already gone. Do not write code. Report it to `build`, which stops and asks the user
+
 ## What counts as a check
 
 | Counts | Does not count |

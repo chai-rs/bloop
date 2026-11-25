@@ -42,6 +42,16 @@ If `$CLAUDE_PLUGIN_ROOT` is empty, find `bin/` inside the `bloop` plugin folder.
 
 **If the issue folder already holds `issue.md`, use that as the request.** Do not ask the user again. That file came from `backlog`, which may already have interviewed them. Its `FR:` line gets copied into `intake.md`.
 
+**If it also holds `debug.md`, read that before anything else.** `debug` already found and proved the cause, so it replaces most of step 2.
+
+| `STATUS` in `debug.md` | What it means for the decision |
+| --- | --- |
+| `ROOT-CAUSE` | The cause is known. `TYPE` is `fix`, or `perf` or `hotfix` when that fits better. Set `RISK` from the code `## Root cause` names, not from how small the symptom looked |
+| `BLOCKED` | Nobody knows the cause yet. Usually `NEEDS-INFO`, asking for what `debug.md` says it needs. Accept only when the user wants the work done anyway, and say the plan starts from an unknown cause |
+| `OPEN` | `debug` has not finished. Say so, and suggest running `/bloop:debug <issue-id>` first |
+
+A cause that is known does not make the fix worth doing. The decision is still yours.
+
 Otherwise the request arrives one of three ways: the user types it · the user pastes the issue text · the user gives a URL.
 
 For a URL, check whether this session has the MCP for that tracker. If it does, pull the title, body and comments. If it does not, **say plainly that you cannot read it** and ask for the text instead. Never infer from the URL.
@@ -117,6 +127,8 @@ Copy `templates/restate.md` and fill it in. Rejected or blocked work stops at `i
 `CONFIRMED: no` on the first write, always. You write it, a human confirms it.
 
 Write `## What we will do` in your own words, as observable behaviour, not file names. If it comes out identical to what the user typed, you have not digested it. Write it again.
+
+With a `debug.md`, one line of it is always that the `REPRO` command passes, quoted exactly.
 
 ### `## Agreed behaviour`, only when needed
 
