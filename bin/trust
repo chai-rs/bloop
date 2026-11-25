@@ -1,0 +1,106 @@
+#!/bin/sh
+# bloop · bin/trust
+#
+# Measures whether corrections are rare and steady, which is the only evidence
+# that justifies raising loop.trustLevel. Reads git history and writes nothing.
+#
+#   bin/trust              the last 30 days against the 30 before them
+#   bin/trust --days 14    a shorter window
+#
+# JSON goes to stdout for a script. The sentence goes to stderr for a person.
+set -u
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf 'bloop: this is not a git repo\n' >&2; exit 1
+}
+cd "$ROOT" || exit 1
+
+DAYS=30
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --days) shift; DAYS=${1:-30} ;;
+    -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
+    *)  printf 'bloop: unexpected argument %s\n' "$1" >&2; exit 64 ;;
+  esac
+  shift
+done
+case "$DAYS" in
+  ''|*[!0-9]*) printf 'bloop: --days takes a whole number\n' >&2; exit 64 ;;
+esac
+
+git rev-parse --verify --quiet HEAD >/dev/null 2>&1 || {
+  printf 'bloop: this repo has no commits yet, so there is nothing to measure\n' >&2
+  exit 1
+}
+
+CONFIG=.bloop/config.json
+LOOP=''
+[ -f "$CONFIG" ] && LOOP=$(tr -d ' \n' < "$CONFIG" 2>/dev/null \
+  | sed -n 's/.*"loop":{\([^}]*\)}.*/\1/p')
+val()  { printf '%s' "$LOOP" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
+num()  { printf '%s' "$LOOP" | sed -n "s/.*\"$1\":\([0-9.]*\).*/\1/p"; }
+
+MAIN=$(val baseBranch);     [ -n "$MAIN" ]    || MAIN=main
+TRUST=$(val trustLevel);    [ -n "$TRUST" ]   || TRUST=review-before-merge
+CEILING=$(num revertCeiling); [ -n "$CEILING" ] || CEILING=0.05
+
+REF=origin/$MAIN
+git rev-parse --verify --quiet "$REF" >/dev/null 2>&1 || REF=$MAIN
+git rev-parse --verify --quiet "$REF" >/dev/null 2>&1 || REF=HEAD
+
+# --first-parent counts one entry per landing whether the project squashes or
+# merges. Without it a merge workflow counts every commit inside a PR and the
+# rate comes out flattering, which is the wrong direction for a safety number.
+count() {
+  from=$1; to=$2; shift 2
+  git log "$REF" --first-parent --since="$from" --until="$to" "$@" --format=%h 2>/dev/null | wc -l | tr -d ' '
+}
+
+NOW=$DAYS
+PREV=$((DAYS * 2))
+
+L1=$(count "$NOW days ago"  "now")
+R1=$(count "$NOW days ago"  "now"           --grep=^Revert)
+H1=$(count "$NOW days ago"  "now"           --grep=^hotfix)
+L2=$(count "$PREV days ago" "$NOW days ago")
+R2=$(count "$PREV days ago" "$NOW days ago" --grep=^Revert)
+
+rate() { awk -v r="$1" -v l="$2" 'BEGIN { if (l + 0 == 0) printf "null"; else printf "%.4f", r / l }'; }
+under() { awk -v r="$1" -v l="$2" -v c="$3" 'BEGIN { if (l + 0 == 0) { print "unknown"; exit } print (r / l <= c + 0) ? "below" : "above" }'; }
+
+RATE1=$(rate "$R1" "$L1")
+RATE2=$(rate "$R2" "$L2")
+V1=$(under "$R1" "$L1" "$CEILING")
+V2=$(under "$R2" "$L2" "$CEILING")
+
+if [ "$V1" = below ] && [ "$V2" = below ]; then
+  STABLE=true
+else
+  STABLE=false
+fi
+
+printf '{"baseBranch":"%s","ref":"%s","trustLevel":"%s","ceiling":%s,' \
+  "$MAIN" "$REF" "$TRUST" "$CEILING"
+printf '"window":{"days":%s,"landings":%s,"reverts":%s,"hotfixes":%s,"revertRate":%s,"verdict":"%s"},' \
+  "$DAYS" "$L1" "$R1" "$H1" "$RATE1" "$V1"
+printf '"previous":{"days":%s,"landings":%s,"reverts":%s,"revertRate":%s,"verdict":"%s"},' \
+  "$DAYS" "$L2" "$R2" "$RATE2" "$V2"
+printf '"stable":%s}\n' "$STABLE"
+
+{
+  printf 'last %s days on %s: %s landings, %s reverts, %s hotfixes\n' "$DAYS" "$REF" "$L1" "$R1" "$H1"
+  printf 'revert rate %s against a ceiling of %s, which is %s\n' "$RATE1" "$CEILING" "$V1"
+  printf 'the %s days before: %s landings, %s reverts, rate %s, %s\n' "$DAYS" "$L2" "$R2" "$RATE2" "$V2"
+  if [ "$STABLE" = true ]; then
+    printf 'both windows are under the ceiling, so the revert condition for raising trustLevel is met\n'
+  elif [ "$V1" = unknown ] || [ "$V2" = unknown ]; then
+    printf 'one window has no landings, so there is no trend yet and trustLevel stays where it is\n'
+  else
+    printf 'a window is over the ceiling, so trustLevel should not go up on this evidence\n'
+  fi
+  printf 'this is one condition of several, and only a human may change trustLevel\n'
+} >&2
+
+# Exit code says whether the evidence supports more autonomy, so checks.sh and
+# CI can use it without reading the sentences above
+[ "$STABLE" = true ]

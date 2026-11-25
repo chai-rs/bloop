@@ -1,0 +1,28 @@
+flowchart TD
+  A["bin/job"] --> B{".bloop/config.json?"}
+  B -- "no" --> X["error: box 1 Architecting is unfinished"]
+  B -- "yes" --> C["read taskManagement<br/>provider + issuesDir"]
+  C --> P{"provider is local?"}
+  P -- "no" --> X2["exit 2: the issues live at that provider"]
+  P -- "yes" --> D["walk the folders in .bloop/issues/"]
+  D --> E["for each issue,<br/>see which files exist"]
+  E --> F{"intake.md?"}
+  F -- "no" --> S0["box 2 · no-intake"]
+  F -- "yes" --> G{"DECISION?"}
+  G -- "NEEDS-INFO" --> S1["box 2 · needs-info"]
+  G -- "REJECT" --> S2["box 2 · rejected"]
+  G -- "ACCEPT" --> H{"restate.md?"}
+  H -- "no" --> S3["box 2 · awaiting-restate"]
+  H -- "yes" --> I{"CONFIRMED: yes?"}
+  I -- "no" --> S4["box 2 · awaiting-human"]
+  I -- "yes" --> J{"spec.md?"}
+  J -- "no" --> S5["box 3 · awaiting-plan"]
+  J -- "yes" --> K{"Context paths real?"}
+  K -- "no" --> S6["box 3 · bad-context"]
+  K -- "yes" --> L{"APPROVED: yes?"}
+  L -- "no" --> S7["box 3 · awaiting-approval"]
+  L -- "yes" --> M{"build.md STATUS?"}
+  M -- "none" --> S8["box 4 · planned"]
+  M -- "BLOCKED" --> S9["box 4 · blocked"]
+  M -- "READY" --> S10["box 5 · built"]
+  M -- "other" --> S11["box 4 · building"]

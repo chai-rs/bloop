@@ -1,0 +1,23 @@
+# bloop:managed git-hooks
+# Weight matters more than coverage. Trunk based means committing often.
+# A heavy pre-commit makes people reach for --no-verify, which is the same as having no hook.
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{ts,tsx,js,jsx,json,md}"
+      run: <format command> {staged_files}
+      stage_fixed: true
+    secret-scan:
+      run: gitleaks protect --staged --redact --config .gitleaks.toml
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx commitlint --edit {1}
+
+pre-push:
+  commands:
+    static-and-unit:
+      run: ./checks.sh
+# bloop:end git-hooks

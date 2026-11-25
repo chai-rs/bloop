@@ -1,0 +1,80 @@
+#!/bin/sh
+# bloop · bin/gate
+#
+# Runs the local gate and keeps the raw output as evidence.
+# All the intelligence lives in checks.sh, which belongs to the user's repo.
+# This only finds it, runs it and records the result, which is why CI can call checks.sh directly.
+#
+#   bin/gate                      run static + unit + component
+#   bin/gate --e2e                also run the E2E smoke test
+#   bin/gate --evidence <path>    also write the raw output to that file
+#   bin/gate --dry-run            say what it would run and where, run nothing
+set -u
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+CONFIG=.bloop/config.json
+CHECKS=./checks.sh
+if [ -f "$CONFIG" ]; then
+  C=$(tr -d ' \n' < "$CONFIG" 2>/dev/null \
+    | sed -n 's/.*"verification":{\([^}]*\)}.*/\1/p' \
+    | sed -n 's/.*"checks":"\([^"]*\)".*/\1/p')
+  [ -n "$C" ] && CHECKS=$C
+fi
+
+E2E=''
+EVIDENCE=''
+DRY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --e2e) E2E=--e2e ;;
+    --evidence) shift; EVIDENCE=${1:-} ;;
+    --dry-run|-n) DRY=1 ;;
+    *) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
+  esac
+  shift
+done
+
+[ -x "$CHECKS" ] || {
+  printf 'bloop: no gate to pass, cannot run %s\n' "$CHECKS" >&2
+  printf 'box 1 Architecting req 6 is what creates this file\n' >&2
+  exit 1
+}
+
+# A dry run resolves everything and runs nothing, so a reader can check the
+# command and the path before the gate spends minutes or overwrites evidence
+if [ "$DRY" = 1 ]; then
+  printf 'dry run, nothing was run and nothing was written\n'
+  printf '  would run:  %s %s\n' "$CHECKS" "$E2E"
+  if [ -n "$EVIDENCE" ]; then
+    if [ -e "$EVIDENCE" ]; then
+      printf '  evidence:   %s, which exists and would be overwritten\n' "$EVIDENCE"
+    else
+      printf '  evidence:   %s, a new file\n' "$EVIDENCE"
+    fi
+  else
+    printf '  evidence:   none, the output would go to the terminal only\n'
+  fi
+  exit 0
+fi
+
+if [ -n "$EVIDENCE" ]; then
+  mkdir -p "$(dirname "$EVIDENCE")" || exit 1
+  {
+    printf '$ %s %s\n' "$CHECKS" "$E2E"
+    printf 'at %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'commit %s\n\n' "$(git rev-parse --short HEAD 2>/dev/null || echo 'none yet')"
+  } > "$EVIDENCE"
+  # a pipeline's exit code is tee's, not checks.sh's,
+  # so pass it out through a file. POSIX sh has no pipefail
+  RC=$(mktemp)
+  { "$CHECKS" $E2E 2>&1; printf '%s' "$?" > "$RC"; } | tee -a "$EVIDENCE"
+  CODE=$(cat "$RC"); rm -f "$RC"
+  printf '\nexit code %s\n' "$CODE" >> "$EVIDENCE"
+else
+  "$CHECKS" $E2E
+  CODE=$?
+fi
+
+exit "$CODE"

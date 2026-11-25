@@ -1,0 +1,125 @@
+#!/bin/sh
+# bloop · bin/work
+#
+# Creates the worktree and branch for one issue.
+# Separate from bin/job because bin/job runs on every detect pass.
+# If it also created branches, calling it would stop being safe.
+#
+#   bin/work <issue-id>             create the worktree if absent, then print its path
+#   bin/work <issue-id> --dry-run   say what it would do, change nothing
+#   bin/work <issue-id> --path      print the path only, create nothing
+set -u
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf 'bloop: this is not a git repo\n' >&2; exit 1
+}
+cd "$ROOT" || exit 1
+
+ISSUE=''
+MODE=create
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run|-n) MODE=dry ;;
+    --path)       MODE=path ;;
+    -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
+    *)  [ -n "$ISSUE" ] && { printf 'bloop: one issue at a time\n' >&2; exit 64; }
+        ISSUE=$1 ;;
+  esac
+  shift
+done
+[ -n "$ISSUE" ] || { printf 'usage: bin/work <issue-id> [--dry-run|--path]\n' >&2; exit 64; }
+
+CONFIG=.bloop/config.json
+[ -f "$CONFIG" ] || { printf 'bloop: %s does not exist yet\n' "$CONFIG" >&2; exit 1; }
+
+sect() {
+  tr -d ' \n' < "$CONFIG" 2>/dev/null | sed -n "s/.*\"$1\":{\([^}]*\)}.*/\1/p"
+}
+val() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"; }
+
+ISSUES_DIR=$(val "$(sect taskManagement)" issuesDir); [ -n "$ISSUES_DIR" ] || ISSUES_DIR=.bloop/issues
+DIR="$ISSUES_DIR/$ISSUE"
+[ -d "$DIR" ] || { printf 'bloop: no issue named %s\n' "$ISSUE" >&2; exit 1; }
+
+header() { sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -1; }
+
+TYPE=$(header "$DIR/intake.md" TYPE)
+[ -n "$TYPE" ] || {
+  printf 'bloop: %s/intake.md has no TYPE line\n' "$DIR" >&2
+  printf 'the kind of work is decided during /bloop:restate, not when the branch is cut\n' >&2
+  exit 1
+}
+
+# The type list lives in config because some projects want words of their own.
+# Not hardcoded here, so adding a word never means editing the plugin.
+TYPES=$(tr -d ' \n' < "$CONFIG" 2>/dev/null \
+  | sed -n 's/.*"branchTypes":\[\([^]]*\)\].*/\1/p' | tr -d '"' | tr ',' ' ')
+[ -n "$TYPES" ] || TYPES='feat fix perf refactor test docs build ci chore hotfix'
+
+ok=0
+for t in $TYPES; do [ "$t" = "$TYPE" ] && ok=1; done
+[ "$ok" = 1 ] || {
+  printf 'bloop: TYPE is %s, which is not in branchTypes\n' "$TYPE" >&2
+  printf 'accepted: %s\n' "$TYPES" >&2
+  exit 1
+}
+
+BRANCH="$TYPE/$ISSUE"
+TREE=".worktrees/$ISSUE"
+
+if [ "$MODE" = path ]; then
+  printf '%s\n' "$TREE"
+  exit 0
+fi
+
+if [ -d "$TREE" ]; then
+  [ "$MODE" = dry ] && printf 'dry run, nothing was changed\n  this worktree already exists, so a real run would only print its path\n'
+  printf 'worktree already exists\n  branch: %s\n  path:   %s\n' "$BRANCH" "$TREE"
+  exit 0
+fi
+
+# A repo with no commits has no HEAD to branch from
+git rev-parse --verify --quiet HEAD >/dev/null 2>&1 || {
+  printf 'bloop: this repo has no commits yet, so there is nothing to branch from\n' >&2
+  printf 'make the first commit, then run bin/work again\n' >&2
+  exit 1
+}
+
+# The base comes from config, so a project on a different trunk is not a special case
+MAIN=$(val "$(sect loop)" baseBranch); [ -n "$MAIN" ] || MAIN=main
+
+BASE=origin/$MAIN
+git rev-parse --verify --quiet "$BASE" >/dev/null 2>&1 || BASE=$MAIN
+git rev-parse --verify --quiet "$BASE" >/dev/null 2>&1 || BASE=$(git rev-parse --abbrev-ref HEAD)
+
+if git rev-parse --verify --quiet "$BRANCH" >/dev/null 2>&1; then
+  CMD="git worktree add $TREE $BRANCH"
+  WHAT="the branch already exists, so only the worktree would be added"
+else
+  CMD="git worktree add -b $BRANCH $TREE $BASE"
+  WHAT="the branch would be created, cut from the base below"
+fi
+
+# A worktree inside the repo gets committed by the first careless `git add -A`,
+# so the ignore line is part of creating one, not a thing to remember later
+IGNORE=0
+grep -qx '\.worktrees/' .gitignore 2>/dev/null || IGNORE=1
+
+# Nothing above this line writes anything, which is what makes --dry-run honest
+if [ "$MODE" = dry ]; then
+  printf 'dry run, nothing was changed\n  %s\n' "$WHAT"
+  printf '  branch: %s\n  base:   %s\n  path:   %s\n' "$BRANCH" "$BASE" "$TREE"
+  printf '  would run: %s\n' "$CMD"
+  [ "$IGNORE" = 1 ] && printf '  would add .worktrees/ to .gitignore\n'
+  exit 0
+fi
+
+if [ "$IGNORE" = 1 ]; then
+  printf '.worktrees/\n' >> .gitignore
+  printf 'added .worktrees/ to .gitignore, so the worktree never lands in a commit\n'
+fi
+
+$CMD >/dev/null || exit 1
+
+printf 'worktree created\n  branch: %s\n  base:   %s\n  path:   %s\n' "$BRANCH" "$BASE" "$TREE"
+printf 'work only inside this path, never edit the main checkout\n'

@@ -1,0 +1,322 @@
+#!/bin/sh
+# bloop · bin/job
+#
+# Reads .bloop/issues/ and returns JSON saying which box each issue sits in.
+# An issue's state is which files exist. There is no separate status field and no
+# central index file, because a central index is where parallel sessions overwrite
+# each other.
+#
+#   bin/job            JSON for every issue
+#   bin/job --brief    one line, for the hook
+#   bin/job <issue-id> JSON for a single issue
+set -u
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+jstr() { if [ -z "${1:-}" ]; then printf 'null'; else printf '"%s"' "$1"; fi; }
+
+CONFIG=.bloop/config.json
+if [ ! -f "$CONFIG" ]; then
+  printf 'bloop: no .bloop/config.json yet, run /bloop:init first\n' >&2
+  exit 1
+fi
+
+# taskManagement is a flat object, so slice it out before picking a key,
+# otherwise we would pick up ci's "provider" instead.
+tm() {
+  tr -d ' \n' < "$CONFIG" 2>/dev/null \
+    | sed -n 's/.*"taskManagement":{\([^}]*\)}.*/\1/p' \
+    | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"
+}
+
+PROVIDER=$(tm provider); [ -n "$PROVIDER" ] || PROVIDER=local
+ISSUES_DIR=$(tm issuesDir); [ -n "$ISSUES_DIR" ] || ISSUES_DIR=.bloop/issues
+
+if [ "$PROVIDER" != local ]; then
+  printf 'bloop: provider is %s, so the issues do not live in this repo\n' "$PROVIDER" >&2
+  printf 'the MVP supports local only. tracker integration is the engine project, see drafts/ENGINE.md\n' >&2
+  exit 2
+fi
+
+# A header line of a file, such as DECISION: ACCEPT
+header() { sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -1; }
+
+# Which box one issue is in, decided purely by which files exist.
+classify() {
+  d=$1
+  # FR comes from issue.md, written by backlog, or intake.md, written by restate
+  FR=$(header "$d/issue.md" FR)
+  REVIEWER=''; SLICES=0; DONE=0; ROUND=0
+  TYPE=$(header "$d/intake.md" TYPE)
+  if [ ! -f "$d/intake.md" ]; then
+    BOX=2; STATE=no-intake; NEXT='run /bloop:restate to decide whether we take this work'
+    DECISION=''; RISK=''; SURFACES=''; RESCOPED=''
+    return
+  fi
+  I_FR=$(header "$d/intake.md" FR); [ -n "$I_FR" ] && FR=$I_FR
+  DECISION=$(header "$d/intake.md" DECISION)
+  RISK=$(header "$d/intake.md" RISK)
+  SURFACES=$(header "$d/intake.md" SURFACES)
+  RESCOPED=$(header "$d/intake.md" RESCOPED)
+
+  case "$DECISION" in
+    NEEDS-INFO)
+      BOX=2; STATE=needs-info; NEXT='answer the questions at the end of intake.md, then run /bloop:restate again'; return ;;
+    REJECT)
+      BOX=2; STATE=rejected; NEXT='nothing. delete the folder if you do not want to keep it'; return ;;
+    ACCEPT) ;;
+    *)
+      BOX=2; STATE=bad-intake; NEXT='intake.md has no readable DECISION line, run /bloop:restate again'; return ;;
+  esac
+
+  if [ ! -f "$d/restate.md" ]; then
+    BOX=2; STATE=awaiting-restate; NEXT='write restate.md saying what we agreed to build'; return
+  fi
+
+  if [ "$(header "$d/restate.md" CONFIRMED)" != yes ]; then
+    BOX=2; STATE=awaiting-human; NEXT='have a human read restate.md and confirm it'; return
+  fi
+
+  if [ ! -f "$d/spec.md" ]; then
+    BOX=3; STATE=awaiting-plan; NEXT='run /bloop:plan to make the plan'; return
+  fi
+
+  REVIEWER=$(header "$d/spec.md" REVIEWER)
+  TYPE=$(header "$d/intake.md" TYPE)
+  BAD=$(bad_paths "$d/spec.md")
+  if [ -n "$BAD" ]; then
+    BOX=3; STATE=bad-context; NEXT="paths cited in Context do not exist:$BAD, have /bloop:plan fix them"; return
+  fi
+
+  if [ "$(header "$d/spec.md" APPROVED)" != yes ]; then
+    BOX=3; STATE=awaiting-approval; NEXT='have a human approve the plan, or /bloop:plan self-approves when risk is low'; return
+  fi
+
+  # Finished slices are the rows in build.md's table that carry a commit sha.
+  # grep -c already prints 0 when it finds nothing, but exits 1. Adding || echo 0
+  # would print "0" twice and break the JSON.
+  SLICES=$(grep -c '^| *[0-9]' "$d/spec.md" 2>/dev/null) || :
+  DONE=$(grep -cE '^\| *[0-9]+ *\| *`?[0-9a-f]{7,}' "$d/build.md" 2>/dev/null) || :
+  [ -n "$SLICES" ] || SLICES=0
+  [ -n "$DONE" ] || DONE=0
+  if [ ! -f "$d/build.md" ]; then
+    BOX=4; STATE=planned; NEXT="run /bloop:build to start on $SLICES slices"; return
+  fi
+
+
+  case "$(header "$d/build.md" STATUS)" in
+    BLOCKED) BOX=4; STATE=blocked; NEXT='build.md says what is stuck, a human has to decide'; return ;;
+    READY)   : ;;
+    *)       BOX=4; STATE=building; NEXT="$DONE of $SLICES slices done, run /bloop:build to continue"; return ;;
+  esac
+
+  # Rounds are folders. The highest one is the round in progress.
+  ROUND=0
+  if [ -d "$d/review" ]; then
+    for r in "$d"/review/round-*; do
+      [ -d "$r" ] || continue
+      n=${r##*round-}
+      case "$n" in ''|*[!0-9]*) continue ;; esac
+      [ "$n" -gt "$ROUND" ] && ROUND=$n
+    done
+  fi
+
+  if [ ! -f "$d/decision.md" ]; then
+    if [ "$ROUND" = 0 ]; then
+      BOX=5; STATE=built; NEXT='run /bloop:review to start the review'; return
+    fi
+    # A lens that asked for changes beats one that passed
+    if grep -qx 'VERDICT: CHANGES' "$d"/review/round-"$ROUND"/review-*.md 2>/dev/null; then
+      BOX=5; STATE=changes-requested
+      NEXT="round $ROUND asked for changes, run /bloop:build then /bloop:review again"
+    else
+      BOX=5; STATE=reviewing; NEXT="round $ROUND under review"
+    fi
+    return
+  fi
+
+  FIRST=$(head -1 "$d/decision.md" 2>/dev/null)
+  SIGNED=$(header "$d/decision.md" APPROVED-BY)
+  case "$FIRST" in
+    APPROVE)  box6 "$d" ;;
+    ESCALATE)
+      if [ -n "$SIGNED" ] && [ "$SIGNED" != none ]; then
+        box6 "$d"
+      else
+        BOX=5; STATE=escalated; NEXT='decision.md says why. a human has to look'
+      fi ;;
+    *) BOX=5; STATE=bad-decision; NEXT='decision.md does not start with APPROVE or ESCALATE' ;;
+  esac
+}
+
+# Box 6 Deliver. deliver.md carries the run, retro.md closes the issue.
+# An issue is done when the lessons have somewhere to go, not when it merged.
+box6() {
+  d=$1
+  BOX=6
+  STATE=''
+  # Set when the issue has got far enough that only the retro is left.
+  # A flag rather than a read of STATE, because an unknown STATUS never sets it.
+  CLOSING=0
+
+  if [ ! -f "$d/deliver.md" ]; then
+    STATE=approved; NEXT='run /bloop:deliver to sync, re-gate and merge'; return
+  fi
+
+  DSTATUS=$(header "$d/deliver.md" STATUS)
+  MERGE=$(header "$d/deliver.md" MERGE)
+  DEPLOYED=$(header "$d/deliver.md" DEPLOYED-AT)
+
+  case "$DSTATUS" in
+    SYNCED|GATED)
+      STATE=delivering; NEXT="deliver.md is at $DSTATUS, run /bloop:deliver to finish the merge"; return ;;
+    ROLLED-BACK)
+      STATE=rolled-back; NEXT='production was bad and this was undone. the follow-up issue carries the fix'; return ;;
+    DEPLOYED)
+      STATE=deployed; NEXT='run /bloop:watch to check production'; return ;;
+    MERGED)
+      if [ -z "$MERGE" ] || [ "$MERGE" = none ]; then
+        STATE=bad-deliver; NEXT='STATUS says MERGED but the MERGE line has no commit'; return
+      fi
+      if [ -n "$DEPLOYED" ] && [ "$DEPLOYED" != none ]; then
+        STATE=deployed; NEXT='run /bloop:watch to check production'; return
+      fi
+      # Merged with nothing to ship is a real end state on plenty of projects,
+      # so it goes straight to the retro instead of waiting for a deploy
+      STATE=merged; CLOSING=1 ;;
+    HEALTHY)
+      STATE=watched; CLOSING=1 ;;
+    ''|none)
+      STATE=bad-deliver; NEXT='deliver.md has no STATUS line'; return ;;
+    *)
+      STATE=bad-deliver; NEXT="deliver.md STATUS is $DSTATUS, which is not a state box 6 knows"; return ;;
+  esac
+
+  [ "$CLOSING" = 1 ] || { STATE=bad-deliver; NEXT='box 6 could not place this deliver.md'; return; }
+
+  if [ ! -f "$d/retro.md" ]; then
+    if [ "$STATE" = merged ]; then
+      NEXT='nothing shipped, so run /bloop:retro to close it'
+    else
+      NEXT='run /bloop:retro to turn the lessons into guardrails'
+    fi
+    return
+  fi
+
+  REPEATS=$(header "$d/retro.md" REPEATS); [ -n "$REPEATS" ] || REPEATS=0
+  case "$REPEATS" in ''|*[!0-9]*) REPEATS=0 ;; esac
+
+  if [ "$REPEATS" -gt 0 ]; then
+    # A repeated problem needs an issue of its own, and the row carries its id.
+    # Counted here rather than trusted, because the count is the gate.
+    WITHID=$(grep -cE '^\| .* \| *[0-9]+ *\| .* \| .*[0-9]{4}-[0-9]{2}-[0-9]{2}' "$d/retro.md" 2>/dev/null) || :
+    [ -n "$WITHID" ] || WITHID=0
+    if [ "$WITHID" -lt "$REPEATS" ]; then
+      STATE=retro-open
+      NEXT="retro.md says $REPEATS repeated problems and $WITHID carry an issue id. open the rest with /bloop:backlog"
+      return
+    fi
+  fi
+
+  STATE=done; NEXT='nothing left. take the next issue'
+}
+
+# Paths cited in ## Context that cannot actually be opened.
+# A script checks this because an agent asked to check will say it did without doing it.
+bad_paths() {
+  sed -n '/^## Context/,/^## /p' "$1" 2>/dev/null \
+    | grep -o '`[^`]*`' \
+    | tr -d '`' \
+    | grep -E '/|\.[a-z]+$' \
+    | while read -r f; do
+        case "$f" in
+          '<'*|*' '*) continue ;;
+        esac
+        [ -e "$f" ] || printf ' %s' "$f"
+      done
+}
+
+emit_one() {
+  d=$1
+  id=$(basename "$d")
+  classify "$d"
+  files=$(ls "$d" 2>/dev/null | tr '\n' ' ')
+  printf '    {\n'
+  printf '      "id": %s,\n' "$(jstr "$id")"
+  printf '      "fr": %s,\n' "$(jstr "$FR")"
+  printf '      "box": %s,\n' "$BOX"
+  printf '      "state": %s,\n' "$(jstr "$STATE")"
+  printf '      "decision": %s,\n' "$(jstr "$DECISION")"
+  printf '      "risk": %s,\n' "$(jstr "$RISK")"
+  printf '      "surfaces": %s,\n' "$(jstr "$SURFACES")"
+  printf '      "rescoped": %s,\n' "$(jstr "$RESCOPED")"
+  printf '      "type": %s,\n' "$(jstr "$TYPE")"
+  printf '      "slices": { "total": %s, "done": %s },\n' "${SLICES:-0}" "${DONE:-0}"
+  printf '      "round": %s,\n' "${ROUND:-0}"
+  printf '      "reviewer": %s,\n' "$(jstr "$REVIEWER")"
+  printf '      "files": %s,\n' "$(jstr "$(echo "$files" | sed 's/ *$//')")"
+  printf '      "next": %s\n' "$(jstr "$NEXT")"
+  printf '    }'
+}
+
+list_dirs() {
+  [ -d "$ISSUES_DIR" ] || return 0
+  find "$ISSUES_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
+}
+
+ONE=''
+BRIEF=0
+case "${1:-}" in
+  --brief) BRIEF=1 ;;
+  '') ;;
+  -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
+  *) ONE=$1 ;;
+esac
+
+if [ -n "$ONE" ]; then
+  D="$ISSUES_DIR/$ONE"
+  if [ ! -d "$D" ]; then
+    printf 'bloop: no issue named %s in %s\n' "$ONE" "$ISSUES_DIR" >&2
+    exit 1
+  fi
+  printf '{\n  "issues": [\n'; emit_one "$D"; printf '\n  ]\n}\n'
+  exit 0
+fi
+
+TOTAL=0; OPEN=0; BLOCKED=0; REJECTED=0; READY=0; DONE=0
+for d in $(list_dirs); do
+  TOTAL=$((TOTAL + 1))
+  classify "$d"
+  case "$STATE" in
+    rejected) REJECTED=$((REJECTED + 1)) ;;
+    needs-info|awaiting-human|awaiting-approval|blocked|escalated) BLOCKED=$((BLOCKED + 1)) ;;
+    approved|merged|deployed|watched) READY=$((READY + 1)) ;;
+    done) DONE=$((DONE + 1)) ;;
+    *) OPEN=$((OPEN + 1)) ;;
+  esac
+done
+
+if [ "$BRIEF" = 1 ]; then
+  if [ "$TOTAL" = 0 ]; then
+    printf 'bloop: no issues in %s yet\n' "$ISSUES_DIR"
+  else
+    printf 'bloop: %s issues · ready to continue %s · waiting on a human %s · in box 6 %s · done %s · rejected %s\n' \
+      "$TOTAL" "$OPEN" "$BLOCKED" "$READY" "$DONE" "$REJECTED"
+  fi
+  exit 0
+fi
+
+printf '{\n'
+printf '  "root": %s,\n' "$(jstr "$ROOT")"
+printf '  "provider": %s,\n' "$(jstr "$PROVIDER")"
+printf '  "issuesDir": %s,\n' "$(jstr "$ISSUES_DIR")"
+printf '  "counts": { "total": %s, "open": %s, "blocked": %s, "ready": %s, "rejected": %s },\n' \
+  "$TOTAL" "$OPEN" "$BLOCKED" "$READY" "$REJECTED"
+printf '  "issues": [\n'
+sep=''
+for d in $(list_dirs); do
+  printf '%s' "$sep"; emit_one "$d"; sep=',
+'
+done
+printf '\n  ]\n}\n'

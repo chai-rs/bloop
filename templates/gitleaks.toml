@@ -1,0 +1,12 @@
+# bloop:managed gitleaks
+[extend]
+useDefault = true
+
+[allowlist]
+description = "known false positives"
+paths = [
+  '''\.bloop/issues/.*/evidence/.*''',
+  '''.*\.example$''',
+  '''.*/fixtures/.*''',
+]
+# bloop:end gitleaks

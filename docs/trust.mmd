@@ -1,0 +1,12 @@
+flowchart TD
+  A["bin/trust"] --> B["read loop.baseBranch<br/>and loop.revertCeiling"]
+  B --> C{"the base branch<br/>has commits?"}
+  C -- "no" --> X["fail: nothing to measure yet"]
+  C -- "yes" --> D["count landings with --first-parent<br/>one entry per merge or squash"]
+  D --> E["count reverts and hotfixes<br/>in the same window"]
+  E --> F["repeat for the window before it"]
+  F --> G["print JSON on stdout,<br/>the sentences on stderr"]
+  G --> H{"both windows<br/>under the ceiling?"}
+  H -- "no" --> Q["exit 1: trustLevel stays<br/>where it is"]
+  H -- "yes" --> P["exit 0: the revert condition<br/>for raising trustLevel is met"]
+  P --> R["a human still decides,<br/>and this is one condition of two"]

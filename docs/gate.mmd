@@ -1,0 +1,17 @@
+flowchart TD
+  A["bin/gate"] --> B["read verification.checks<br/>from .bloop/config.json"]
+  B --> C{"that file exists<br/>and is executable?"}
+  C -- "no" --> X["fail: no gate to pass"]
+  C -- "yes" --> N{"called with --dry-run?"}
+  N -- "yes" --> M["print the command it would run<br/>and the evidence path,<br/>saying if that file exists already.<br/>Nothing runs, nothing is written"]
+  N -- "no" --> D{"called with --e2e?"}
+  D -- "no" --> E["run ./checks.sh<br/>static + unit + component"]
+  D -- "yes" --> F["run ./checks.sh --e2e<br/>plus the E2E smoke test"]
+  E --> G{"--evidence given?"}
+  F --> G
+  G -- "yes" --> H["write command, time, commit,<br/>raw output and exit code to the file"]
+  G -- "no" --> I["print to stdout only"]
+  H --> J{"exit code 0?"}
+  I --> J
+  J -- "yes" --> P["pass"]
+  J -- "no" --> Q["fail, keeping the raw output"]

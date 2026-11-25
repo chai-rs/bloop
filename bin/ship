@@ -1,0 +1,200 @@
+#!/bin/sh
+# bloop · bin/ship
+#
+# Box 6 Deliver's one lever: catch the branch up with the base, re-run the gate,
+# and merge. Split into steps on purpose, because each one after the first
+# reaches outside this machine and needs the user's word first.
+#
+#   bin/ship <issue-id>             sync onto the base, re-run the gate, report. Local only
+#   bin/ship <issue-id> --push      update the remote branch as well
+#   bin/ship <issue-id> --merge     merge it. Refuses unless synced and the gate is green
+#   bin/ship <issue-id> --dry-run   say what that call would do, change nothing
+#
+# JSON goes to stdout for a skill. The sentences go to stderr for a person.
+set -u
+
+# bin/gate lives beside this script in the plugin, not in the user's repo,
+# so it is resolved from $0 and never from the project root
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd) || exit 1
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf 'bloop: this is not a git repo\n' >&2; exit 1
+}
+cd "$ROOT" || exit 1
+
+ISSUE=''
+PUSH=0
+MERGE=0
+DRY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --push)       PUSH=1 ;;
+    --merge)      MERGE=1 ;;
+    --dry-run|-n) DRY=1 ;;
+    -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
+    *)  [ -n "$ISSUE" ] && { printf 'bloop: one issue at a time\n' >&2; exit 64; }
+        ISSUE=$1 ;;
+  esac
+  shift
+done
+[ -n "$ISSUE" ] || { printf 'usage: bin/ship <issue-id> [--push|--merge] [--dry-run]\n' >&2; exit 64; }
+
+CONFIG=.bloop/config.json
+[ -f "$CONFIG" ] || { printf 'bloop: %s does not exist yet\n' "$CONFIG" >&2; exit 1; }
+sect() { tr -d ' \n' < "$CONFIG" 2>/dev/null | sed -n "s/.*\"$1\":{\([^}]*\)}.*/\1/p"; }
+val()  { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"; }
+
+ISSUES_DIR=$(val "$(sect taskManagement)" issuesDir); [ -n "$ISSUES_DIR" ] || ISSUES_DIR=.bloop/issues
+DIR="$ISSUES_DIR/$ISSUE"
+[ -d "$DIR" ] || { printf 'bloop: no issue named %s\n' "$ISSUE" >&2; exit 1; }
+
+header() { sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -1; }
+
+# The decision file is what says this may leave box 5 Review at all
+FIRST=$(head -1 "$DIR/decision.md" 2>/dev/null)
+SIGNED=$(header "$DIR/decision.md" APPROVED-BY)
+case "$FIRST" in
+  APPROVE) : ;;
+  ESCALATE)
+    [ -n "$SIGNED" ] && [ "$SIGNED" != none ] || {
+      printf 'bloop: decision.md says ESCALATE and nobody has signed it\n' >&2
+      printf 'a person writes APPROVED-BY. This script never does\n' >&2
+      exit 1
+    } ;;
+  *) printf 'bloop: %s/decision.md does not approve this yet\n' "$DIR" >&2; exit 1 ;;
+esac
+
+TYPE=$(header "$DIR/intake.md" TYPE)
+RISK=$(header "$DIR/intake.md" RISK); [ -n "$RISK" ] || RISK=unknown
+[ -n "$TYPE" ] || { printf 'bloop: %s/intake.md has no TYPE line\n' "$DIR" >&2; exit 1; }
+
+BRANCH="$TYPE/$ISSUE"
+TREE=".worktrees/$ISSUE"
+[ -d "$TREE" ] || { printf 'bloop: no worktree at %s, run bin/work first\n' "$TREE" >&2; exit 1; }
+
+MAIN=$(val "$(sect loop)" baseBranch);  [ -n "$MAIN" ]  || MAIN=main
+SYNC=$(val "$(sect deliver)" sync);     [ -n "$SYNC" ]  || SYNC=rebase
+STYLE=$(val "$(sect git)" mergeStyle);  [ -n "$STYLE" ] || STYLE=squash
+
+REMOTE=none
+git remote get-url origin >/dev/null 2>&1 && REMOTE=origin
+
+if [ "$REMOTE" = origin ]; then BASE=origin/$MAIN; else BASE=$MAIN; fi
+
+jstr() { [ -z "$1" ] && printf 'null' || printf '"%s"' "$1"; }
+
+# Nothing below writes until the step that says it does, so --dry-run can stop
+# anywhere above its own report and still be telling the truth
+DIRTY=$(git -C "$TREE" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+
+if [ "$DRY" = 1 ]; then
+  printf '{"issue":%s,"branch":%s,"risk":%s,"base":%s,"worktree":%s,"sync":%s,"mergeStyle":%s,"remote":%s,"uncommitted":%s,"dryRun":true}\n' \
+    "$(jstr "$ISSUE")" "$(jstr "$BRANCH")" "$(jstr "$RISK")" "$(jstr "$BASE")" \
+    "$(jstr "$TREE")" "$(jstr "$SYNC")" "$(jstr "$STYLE")" "$(jstr "$REMOTE")" "$DIRTY"
+  {
+    printf 'dry run, nothing was changed\n'
+    [ "$DIRTY" != 0 ] && printf '  %s uncommitted files in %s would stop a real run\n' "$DIRTY" "$TREE"
+    [ "$REMOTE" = origin ] && printf '  would fetch origin\n' || printf '  no origin, so everything stays local\n'
+    if [ "$SYNC" = rebase ]; then
+      printf '  would run: git -C %s rebase %s\n' "$TREE" "$BASE"
+    else
+      printf '  would run: git -C %s merge --no-edit %s\n' "$TREE" "$BASE"
+    fi
+    printf '  would run: bin/gate --e2e inside %s\n' "$TREE"
+    if [ "$PUSH" = 1 ] && [ "$REMOTE" = none ]; then
+      printf '  nothing to push, this repo has no origin\n'
+    elif [ "$PUSH" = 1 ]; then
+      if [ "$SYNC" = rebase ]; then
+        printf '  would run: git -C %s push --force-with-lease origin %s\n' "$TREE" "$BRANCH"
+        printf '  that push rewrites the branch, so review comments detach from their commits\n'
+      else
+        printf '  would run: git -C %s push origin %s\n' "$TREE" "$BRANCH"
+      fi
+    fi
+    if [ "$MERGE" = 1 ]; then
+      if [ "$REMOTE" = origin ] && command -v gh >/dev/null 2>&1; then
+        printf '  would run: gh pr merge %s --%s\n' "$BRANCH" "$STYLE"
+      else
+        printf '  no gh or no origin, would merge locally: git merge --no-ff %s into %s\n' "$BRANCH" "$MAIN"
+      fi
+      printf '  risk is %s. whether that may merge unasked is the skill to decide, not this script\n' "$RISK"
+    fi
+  } >&2
+  exit 0
+fi
+
+[ "$DIRTY" = 0 ] || {
+  printf 'bloop: %s has %s uncommitted files\n' "$TREE" "$DIRTY" >&2
+  printf 'commit or stash them. Syncing over a dirty tree loses work\n' >&2
+  exit 1
+}
+
+[ "$REMOTE" = origin ] && git fetch --quiet origin "$MAIN" 2>/dev/null
+
+SYNCED=true
+CONFLICTS=0
+if [ "$SYNC" = rebase ]; then
+  git -C "$TREE" rebase "$BASE" >/dev/null 2>&1 || {
+    CONFLICTS=$(git -C "$TREE" diff --name-only --diff-filter=U 2>/dev/null | wc -l | tr -d ' ')
+    git -C "$TREE" rebase --abort >/dev/null 2>&1
+    SYNCED=false
+  }
+else
+  git -C "$TREE" merge --no-edit "$BASE" >/dev/null 2>&1 || {
+    CONFLICTS=$(git -C "$TREE" diff --name-only --diff-filter=U 2>/dev/null | wc -l | tr -d ' ')
+    git -C "$TREE" merge --abort >/dev/null 2>&1
+    SYNCED=false
+  }
+fi
+
+# An aborted sync leaves the worktree exactly as it was, which is why the gate
+# is not run on a branch that never caught up
+GATE=null
+if [ "$SYNCED" = true ]; then
+  ( cd "$TREE" && "$HERE/gate" --e2e >/dev/null 2>&1 )
+  GATE=$?
+fi
+
+PUSHED=false
+if [ "$PUSH" = 1 ] && [ "$SYNCED" = true ] && [ "$GATE" = 0 ] && [ "$REMOTE" = origin ]; then
+  if [ "$SYNC" = rebase ]; then
+    git -C "$TREE" push --force-with-lease origin "$BRANCH" >/dev/null 2>&1 && PUSHED=true
+  else
+    git -C "$TREE" push origin "$BRANCH" >/dev/null 2>&1 && PUSHED=true
+  fi
+fi
+
+MERGED=false
+SHA=''
+if [ "$MERGE" = 1 ]; then
+  if [ "$SYNCED" != true ] || [ "$GATE" != 0 ]; then
+    printf 'bloop: refusing to merge. synced=%s gate=%s\n' "$SYNCED" "$GATE" >&2
+  elif [ "$REMOTE" = origin ] && command -v gh >/dev/null 2>&1; then
+    gh pr merge "$BRANCH" "--$STYLE" >/dev/null 2>&1 && MERGED=true
+  else
+    git -C "$ROOT" merge --no-ff --no-edit "$BRANCH" >/dev/null 2>&1 && MERGED=true
+  fi
+  [ "$MERGED" = true ] && SHA=$(git rev-parse --short "$MAIN" 2>/dev/null)
+fi
+
+printf '{"issue":%s,"branch":%s,"risk":%s,"base":%s,"sync":%s,"synced":%s,"conflicts":%s,' \
+  "$(jstr "$ISSUE")" "$(jstr "$BRANCH")" "$(jstr "$RISK")" "$(jstr "$BASE")" "$(jstr "$SYNC")" "$SYNCED" "$CONFLICTS"
+printf '"gate":%s,"remote":%s,"pushed":%s,"merged":%s,"mergeStyle":%s,"sha":%s}\n' \
+  "$GATE" "$(jstr "$REMOTE")" "$PUSHED" "$MERGED" "$(jstr "$STYLE")" "$(jstr "$SHA")"
+
+{
+  if [ "$SYNCED" = true ]; then
+    printf '%s is up to date with %s\n' "$BRANCH" "$BASE"
+  else
+    printf '%s does not sync onto %s: %s files conflict\n' "$BRANCH" "$BASE" "$CONFLICTS"
+    printf 'the sync was aborted, so the worktree is as it was. a person resolves this\n'
+  fi
+  [ "$GATE" = 0 ] && printf 'the gate passed after the sync\n'
+  [ "$GATE" != 0 ] && [ "$GATE" != null ] && printf 'the gate failed after the sync, exit %s. back to box 4 Build\n' "$GATE"
+  [ "$PUSH" = 1 ] && { [ "$PUSHED" = true ] && printf 'the remote branch is updated\n' || printf 'nothing was pushed\n'; }
+  [ "$MERGE" = 1 ] && { [ "$MERGED" = true ] && printf 'merged as %s\n' "$SHA" || printf 'nothing was merged\n'; }
+} >&2
+
+# Exit 0 only when the branch is synced and the gate is green, so a skill can
+# branch on the code instead of reading the sentences
+[ "$SYNCED" = true ] && [ "$GATE" = 0 ]

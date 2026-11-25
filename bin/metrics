@@ -1,0 +1,156 @@
+#!/bin/sh
+# bloop · bin/metrics
+#
+# Counts how the loop is doing, from the issue folders only. Writes nothing.
+# Every number here comes from a file some skill already had to write, so
+# there is no separate bookkeeping to keep honest.
+#
+#   bin/metrics             the last 30 days
+#   bin/metrics --days 90   a longer window
+#
+# JSON goes to stdout. The sentences go to stderr.
+set -u
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+DAYS=30
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --days) shift; DAYS=${1:-30} ;;
+    -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
+    *)  printf 'bloop: unexpected argument %s\n' "$1" >&2; exit 64 ;;
+  esac
+  shift
+done
+case "$DAYS" in
+  ''|*[!0-9]*) printf 'bloop: --days takes a whole number\n' >&2; exit 64 ;;
+esac
+
+CONFIG=.bloop/config.json
+ISSUES_DIR=.bloop/issues
+if [ -f "$CONFIG" ]; then
+  D=$(tr -d ' \n' < "$CONFIG" 2>/dev/null \
+    | sed -n 's/.*"taskManagement":{\([^}]*\)}.*/\1/p' \
+    | sed -n 's/.*"issuesDir":"\([^"]*\)".*/\1/p')
+  [ -n "$D" ] && ISSUES_DIR=$D
+fi
+[ -d "$ISSUES_DIR" ] || {
+  printf 'bloop: %s does not exist, so there is nothing to count\n' "$ISSUES_DIR" >&2
+  printf 'this only works where the issues live in folders\n' >&2
+  exit 1
+}
+
+TODAY=$(date -u '+%Y-%m-%d')
+header() { sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -1; }
+
+# One line per issue, tab separated, then awk does all the arithmetic.
+# Dates stay as YYYY-MM-DD here: turning them into numbers needs integer
+# division that sh does not have, so awk converts them instead.
+ROWS=$(
+  for d in "$ISSUES_DIR"/*/; do
+    [ -d "$d" ] || continue
+    id=$(basename "$d")
+    born=$(printf '%s' "$id" | sed -n 's/^\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\).*/\1/p')
+    [ -n "$born" ] || born=none
+
+    decision=none
+    [ -f "$d/decision.md" ] && decision=$(head -1 "$d/decision.md" 2>/dev/null)
+
+    status=none; merged=none; deployed=none; rolled=none
+    if [ -f "$d/deliver.md" ]; then
+      status=$(header "$d/deliver.md" STATUS);        [ -n "$status" ]   || status=none
+      merged=$(header "$d/deliver.md" MERGED-AT);     [ -n "$merged" ]   || merged=none
+      deployed=$(header "$d/deliver.md" DEPLOYED-AT); [ -n "$deployed" ] || deployed=none
+      rolled=$(header "$d/deliver.md" ROLLED-BACK-AT);[ -n "$rolled" ]   || rolled=none
+    fi
+
+    rounds=0
+    [ -d "$d/review" ] && rounds=$(find "$d/review" -maxdepth 1 -type d -name 'round-*' 2>/dev/null | wc -l | tr -d ' ')
+
+    misses=0
+    [ -f "$d/build.md" ] && misses=$(grep -c '^- `\[must\]`' "$d/build.md" 2>/dev/null) || :
+    [ -n "$misses" ] || misses=0
+
+    retro=no
+    [ -f "$d/retro.md" ] && retro=yes
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$id" "$born" "$decision" "$status" "$merged" "$deployed" "$rolled" "$rounds" "$misses" "$retro"
+  done
+)
+
+[ -n "$ROWS" ] || {
+  printf 'bloop: %s holds no issues yet\n' "$ISSUES_DIR" >&2
+  exit 1
+}
+
+printf '%s\n' "$ROWS" | awk -F'\t' -v days="$DAYS" -v today="$TODAY" '
+# days since 1970-01-01, by the usual civil-to-days arithmetic.
+# Written out because POSIX awk has no date functions at all.
+function tod(s,   y, m, d, era, yoe, doy, doe) {
+  if (s !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) return -1
+  y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
+  if (m <= 2) y--
+  era = int(y / 400)
+  yoe = y - era * 400
+  doy = int((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+  doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+  return era * 146097 + doe - 719468
+}
+function median(a, n,   i, j, t) {
+  for (i = 1; i < n; i++) for (j = i + 1; j <= n; j++) if (a[j] < a[i]) { t = a[i]; a[i] = a[j]; a[j] = t }
+  if (n == 0) return -1
+  if (n % 2) return a[int(n / 2) + 1]
+  return (a[n / 2] + a[n / 2 + 1]) / 2
+}
+BEGIN { now = tod(today); cut = now - days }
+{
+  id = $1; born = $2; decision = $3; status = $4
+  merged = $5; deployed = $6; rolled = $7; rounds = $8 + 0; misses = $9 + 0; retro = $10
+
+  total++
+  if (decision ~ /^ESCALATE/) esc++
+  if (decision == "none") open++
+
+  m = tod(merged)
+  if (m >= cut) {
+    win++
+    l = tod(born)
+    if (l >= 0) { lead[++nlead] = m - l }
+    rsum += rounds; rn++
+    msum += misses
+    if (retro == "yes") retros++
+    if (status ~ /ROLLED-BACK/) {
+      fail++
+      p = tod(deployed); r = tod(rolled)
+      if (p >= 0 && r >= p) restore[++nrest] = r - p
+    }
+  }
+}
+END {
+  lm = median(lead, nlead)
+  rm = median(restore, nrest)
+  printf "{\"window\":{\"days\":%d,\"to\":\"%s\"},", days, today
+  printf "\"issues\":{\"total\":%d,\"delivered\":%d,\"escalated\":%d,\"notDecided\":%d},", total, win, esc + 0, open + 0
+  printf "\"dora\":{\"deployments\":%d,", win + 0
+  if (lm >= 0) printf "\"leadTimeDaysMedian\":%.1f,", lm; else printf "\"leadTimeDaysMedian\":null,"
+  if (win > 0) printf "\"changeFailureRate\":%.4f,", fail / win; else printf "\"changeFailureRate\":null,"
+  if (rm >= 0) printf "\"timeToRestoreDaysMedian\":%.1f},", rm; else printf "\"timeToRestoreDaysMedian\":null},"
+  printf "\"ours\":{"
+  if (rn > 0) printf "\"reviewRoundsMean\":%.2f,", rsum / rn; else printf "\"reviewRoundsMean\":null,"
+  if (total > 0) printf "\"escalateRate\":%.4f,", esc / total; else printf "\"escalateRate\":null,"
+  printf "\"gateMisses\":%d,\"retrosWritten\":%d}}\n", msum + 0, retros + 0
+
+  f = "/dev/stderr"
+  printf "%d issues on disk, %d delivered in the last %d days\n", total, win, days > f
+  if (lm >= 0) printf "lead time from the issue date to merge: %.1f days median\n", lm > f
+  else printf "lead time: not countable yet, no merged issue carries both dates\n" > f
+  if (win > 0) printf "change failure rate: %.0f%% of those were rolled back\n", 100 * fail / win > f
+  if (rm >= 0) printf "time to restore: %.1f days median\n", rm > f
+  else if (fail > 0) printf "time to restore: a rollback is recorded without its dates\n" > f
+  if (rn > 0) printf "review rounds: %.2f per issue, and the gate missed %d musts\n", rsum / rn, msum + 0 > f
+  if (win > 0 && retros < win) printf "%d delivered issues have no retro.md, so their lessons went nowhere\n", win - retros > f
+  printf "every number here is read from the issue folders, nothing is estimated\n" > f
+}
+'

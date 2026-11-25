@@ -1,0 +1,16 @@
+flowchart TD
+  A["bin/work <issue-id>"] --> B{"git repo?"}
+  B -- "no" --> X1["error"]
+  B -- "yes" --> C{"the issue folder exists?"}
+  C -- "no" --> X2["error: no issue by that name"]
+  C -- "yes" --> D{"intake.md has a TYPE line?"}
+  D -- "no" --> X3["error: TYPE is decided during /bloop:restate"]
+  D -- "yes" --> E{"TYPE is in git.branchTypes?"}
+  E -- "no" --> X4["error: list the accepted types"]
+  E -- "yes" --> F{"the worktree already exists?"}
+  F -- "yes" --> G["print the branch and path"]
+  F -- "no" --> H["base on origin/main,<br/>or the current branch"]
+  H --> K{"called with --dry-run?"}
+  K -- "yes" --> L["print the branch, the base, the path<br/>and the exact git command.<br/>Nothing is written"]
+  K -- "no" --> I["git worktree add<br/>branch <type>/<issue-id>"]
+  I --> J["print branch, base and path<br/>work only in there"]

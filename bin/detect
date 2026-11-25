@@ -1,0 +1,265 @@
+#!/bin/sh
+# bloop · bin/detect
+#
+# Reads the repo and returns JSON: what is set up, what is missing, which stage to start at.
+# There is one of these because if init, contract and guardrails each read the repo
+# themselves, their answers drift apart over time.
+#
+#   bin/detect            return JSON
+#   bin/detect --brief    return one line, for the hook
+set -u
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+# ---- helper ----------------------------------------------------------------
+
+jstr() { [ -z "${1:-}" ] && printf 'null' || printf '"%s"' "$1"; }
+jbool() { [ "${1:-}" = "1" ] && printf 'true' || printf 'false'; }
+
+jarr() {
+  printf '['
+  sep=''
+  for item in $1; do
+    printf '%s"%s"' "$sep" "$item"
+    sep=', '
+  done
+  printf ']'
+}
+
+anyglob() {
+  for f in $1; do
+    [ -e "$f" ] && return 0
+  done
+  return 1
+}
+
+firstof() {
+  for f in $1; do
+    [ -e "$f" ] && { printf '%s' "$f"; return 0; }
+  done
+  return 1
+}
+
+dep() { [ -f package.json ] && grep -q "\"$1\"" package.json 2>/dev/null; }
+
+# ---- git -------------------------------------------------------------------
+
+IS_REPO=0
+DEFAULT_BRANCH=''
+HAS_REMOTE=0
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  IS_REPO=1
+  DEFAULT_BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo '')
+  git remote 2>/dev/null | grep -q . && HAS_REMOTE=1
+fi
+
+# ---- language and package manager -------------------------------------------
+
+LANGS=''
+[ -f tsconfig.json ] && LANGS="$LANGS typescript"
+[ -f package.json ] && [ ! -f tsconfig.json ] && LANGS="$LANGS javascript"
+[ -f go.mod ] && LANGS="$LANGS go"
+{ [ -f pyproject.toml ] || [ -f requirements.txt ]; } && LANGS="$LANGS python"
+[ -f Cargo.toml ] && LANGS="$LANGS rust"
+{ [ -f pom.xml ] || anyglob 'build.gradle*'; } && LANGS="$LANGS java"
+
+PM=''
+[ -f pnpm-lock.yaml ] && PM=pnpm
+[ -z "$PM" ] && [ -f yarn.lock ] && PM=yarn
+[ -z "$PM" ] && { [ -f bun.lockb ] || [ -f bun.lock ]; } && PM=bun
+[ -z "$PM" ] && [ -f package-lock.json ] && PM=npm
+[ -z "$PM" ] && [ -f package.json ] && PM=npm
+
+# ---- framework and kind -----------------------------------------------------
+
+FW=''
+dep vinext && FW="$FW vinext"
+dep next && FW="$FW next"
+dep '@nestjs/core' && FW="$FW nest"
+dep express && FW="$FW express"
+dep fastify && FW="$FW fastify"
+dep react && FW="$FW react"
+anyglob 'vite.config.*' && FW="$FW vite"
+grep -qs '^django' requirements.txt pyproject.toml 2>/dev/null && FW="$FW django"
+grep -qs 'fastapi' requirements.txt pyproject.toml 2>/dev/null && FW="$FW fastapi"
+grep -qs 'gin-gonic' go.mod 2>/dev/null && FW="$FW gin"
+
+HAS_UI=0
+HAS_API=0
+case " $FW " in *" react "*|*" next "*|*" vinext "*|*" vite "*) HAS_UI=1 ;; esac
+case " $FW " in *" nest "*|*" express "*|*" fastify "*|*" django "*|*" fastapi "*|*" gin "*) HAS_API=1 ;; esac
+[ -f go.mod ] && HAS_API=1
+
+KIND=''
+[ "$HAS_UI" = 1 ] && [ "$HAS_API" = 1 ] && KIND=fullstack
+[ -z "$KIND" ] && [ "$HAS_UI" = 1 ] && KIND=frontend
+[ -z "$KIND" ] && [ "$HAS_API" = 1 ] && KIND=backend
+
+# ---- static check -----------------------------------------------------------
+
+LINT=''
+anyglob 'biome.json*' && LINT=biome
+[ -z "$LINT" ] && { anyglob 'eslint.config.*' || anyglob '.eslintrc*'; } && LINT=eslint
+[ -z "$LINT" ] && anyglob '.oxlintrc*' && LINT=oxlint
+[ -z "$LINT" ] && { [ -f ruff.toml ] || grep -qs 'tool.ruff' pyproject.toml; } && LINT=ruff
+[ -z "$LINT" ] && anyglob '.golangci*' && LINT=golangci-lint
+
+FORMAT=''
+[ "$LINT" = biome ] && FORMAT=biome
+[ -z "$FORMAT" ] && anyglob '.prettierrc*' && FORMAT=prettier
+[ -z "$FORMAT" ] && dep prettier && FORMAT=prettier
+[ -z "$FORMAT" ] && [ -f go.mod ] && FORMAT=gofmt
+[ -z "$FORMAT" ] && [ "$LINT" = ruff ] && FORMAT=ruff
+
+TYPECHECK=''
+[ -f tsconfig.json ] && TYPECHECK=tsc
+[ -z "$TYPECHECK" ] && { [ -f mypy.ini ] || grep -qs 'tool.mypy' pyproject.toml; } && TYPECHECK=mypy
+
+BOUNDARY=''
+anyglob '.dependency-cruiser.*' && BOUNDARY=dependency-cruiser
+[ -z "$BOUNDARY" ] && dep 'eslint-plugin-boundaries' && BOUNDARY=eslint-plugin-boundaries
+
+# ---- verification -----------------------------------------------------------
+
+UNIT=''
+{ anyglob 'vitest.config.*' || dep vitest; } && UNIT=vitest
+[ -z "$UNIT" ] && { anyglob 'jest.config.*' || dep jest; } && UNIT=jest
+[ -z "$UNIT" ] && grep -qs 'pytest' pyproject.toml requirements.txt 2>/dev/null && UNIT=pytest
+[ -z "$UNIT" ] && [ -f go.mod ] && UNIT='go-test'
+
+E2E=''
+{ anyglob 'playwright.config.*' || dep '@playwright/test'; } && E2E=playwright
+[ -z "$E2E" ] && anyglob 'cypress.config.*' && E2E=cypress
+
+INTEGRATION=''
+{ [ -f bruno.json ] || [ -d bruno ]; } && INTEGRATION=bruno
+[ -z "$INTEGRATION" ] && dep msw && INTEGRATION=msw
+
+CHECKS=$(firstof 'checks.sh scripts/checks.sh' || echo '')
+
+# ---- ci ---------------------------------------------------------------------
+
+CI=''
+[ -d .github/workflows ] && CI=github
+[ -z "$CI" ] && [ -f .gitlab-ci.yml ] && CI=gitlab
+[ -z "$CI" ] && [ -f bitbucket-pipelines.yml ] && CI=bitbucket
+
+# ---- contract ---------------------------------------------------------------
+
+OPENAPI=$(firstof 'openapi.yaml openapi.yml openapi.json api/openapi.yaml docs/openapi.yaml' || echo '')
+
+# ---- prose ------------------------------------------------------------------
+
+HAS_AGENTS=0; [ -f AGENTS.md ] && HAS_AGENTS=1
+HAS_CLAUDE=0; [ -f CLAUDE.md ] && HAS_CLAUDE=1
+HAS_SKILLS=0; [ -d .claude/skills ] && HAS_SKILLS=1
+HAS_ARCH=0; [ -f ARCHITECTURE.md ] && HAS_ARCH=1
+HAS_SETTINGS=0; [ -f .claude/settings.json ] && HAS_SETTINGS=1
+
+# ---- git hook and security ---------------------------------------------------
+
+HOOK_RUNNER=''
+anyglob 'lefthook.y*ml' && HOOK_RUNNER=lefthook
+[ -z "$HOOK_RUNNER" ] && [ -d .husky ] && HOOK_RUNNER=husky
+[ -z "$HOOK_RUNNER" ] && [ -f .pre-commit-config.yaml ] && HOOK_RUNNER=pre-commit
+
+HAS_COMMITLINT=0; anyglob 'commitlint.config.*' && HAS_COMMITLINT=1
+HAS_GITLEAKS=0; [ -f .gitleaks.toml ] && HAS_GITLEAKS=1
+HAS_FLAGS=0; [ -f flags.json ] && HAS_FLAGS=1
+
+# ---- bloop ------------------------------------------------------------------
+
+HAS_CONFIG=0; [ -f .bloop/config.json ] && HAS_CONFIG=1
+HAS_ISSUES=0; [ -d .bloop/issues ] && HAS_ISSUES=1
+
+# Issues live in exactly one place. provider local means .bloop/issues, anything else
+# means they live at that provider. No config means local, the default guardrails writes.
+TRACKER=local
+if [ "$HAS_CONFIG" = 1 ]; then
+  T=$(tr -d ' \n' < .bloop/config.json 2>/dev/null \
+    | sed -n 's/.*"taskManagement":{\([^}]*\)}.*/\1/p' \
+    | sed -n 's/.*"provider":"\([^"]*\)".*/\1/p')
+  [ -n "$T" ] && TRACKER=$T
+fi
+
+cfg_has() { [ "$HAS_CONFIG" = 1 ] && grep -q "\"$1\"" .bloop/config.json; }
+
+# ---- stage ------------------------------------------------------------------
+# Which stage to start at, walking up from whatever is missing first
+
+STAGE=architecting:init
+if [ "$HAS_CONFIG" = 1 ] && [ "$HAS_ARCH" = 1 ]; then
+  STAGE=architecting:contract
+  if cfg_has contract; then
+    STAGE=architecting:guardrails
+    if [ -n "$CHECKS" ] && [ "$HAS_AGENTS" = 1 ]; then
+      STAGE=ready
+    fi
+  fi
+fi
+
+MISSING=''
+[ "$HAS_ARCH" = 0 ] && MISSING="$MISSING ARCHITECTURE.md"
+[ "$HAS_CONFIG" = 0 ] && MISSING="$MISSING .bloop/config.json"
+[ -z "$OPENAPI" ] && MISSING="$MISSING openapi.yaml"
+[ -z "$LINT" ] && MISSING="$MISSING lint"
+[ -z "$UNIT" ] && MISSING="$MISSING unit-test"
+[ -z "$CHECKS" ] && MISSING="$MISSING checks.sh"
+[ "$HAS_AGENTS" = 0 ] && MISSING="$MISSING AGENTS.md"
+[ -z "$CI" ] && MISSING="$MISSING ci"
+[ "$TRACKER" = local ] && [ "$HAS_ISSUES" = 0 ] && MISSING="$MISSING .bloop/issues"
+
+if [ "${1:-}" = "--brief" ]; then
+  printf 'bloop: stage=%s kind=%s missing:%s\n' "$STAGE" "${KIND:-unknown}" "${MISSING:- nothing}"
+  exit 0
+fi
+
+cat <<JSON
+{
+  "root": $(jstr "$ROOT"),
+  "stage": $(jstr "$STAGE"),
+  "git": {
+    "isRepo": $(jbool "$IS_REPO"),
+    "branch": $(jstr "$DEFAULT_BRANCH"),
+    "hasRemote": $(jbool "$HAS_REMOTE")
+  },
+  "language": $(jarr "$LANGS"),
+  "packageManager": $(jstr "$PM"),
+  "framework": $(jarr "$FW"),
+  "kindGuess": $(jstr "$KIND"),
+  "static": {
+    "lint": $(jstr "$LINT"),
+    "format": $(jstr "$FORMAT"),
+    "typecheck": $(jstr "$TYPECHECK"),
+    "boundary": $(jstr "$BOUNDARY")
+  },
+  "verification": {
+    "unit": $(jstr "$UNIT"),
+    "integration": $(jstr "$INTEGRATION"),
+    "e2e": $(jstr "$E2E"),
+    "checks": $(jstr "$CHECKS")
+  },
+  "ci": $(jstr "$CI"),
+  "contract": { "openapi": $(jstr "$OPENAPI") },
+  "prose": {
+    "architectureMd": $(jbool "$HAS_ARCH"),
+    "agentsMd": $(jbool "$HAS_AGENTS"),
+    "claudeMd": $(jbool "$HAS_CLAUDE"),
+    "projectSkills": $(jbool "$HAS_SKILLS"),
+    "claudeSettings": $(jbool "$HAS_SETTINGS")
+  },
+  "gitHooks": {
+    "runner": $(jstr "$HOOK_RUNNER"),
+    "commitlint": $(jbool "$HAS_COMMITLINT")
+  },
+  "security": { "gitleaks": $(jbool "$HAS_GITLEAKS") },
+  "featureFlags": { "registry": $(jbool "$HAS_FLAGS") },
+  "bloop": {
+    "config": $(jbool "$HAS_CONFIG"),
+    "tracker": $(jstr "$TRACKER"),
+    "issuesDir": $(jbool "$HAS_ISSUES")
+  },
+  "missing": $(jarr "$MISSING")
+}
+JSON

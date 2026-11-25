@@ -1,0 +1,39 @@
+# bloop:managed checks-workflow
+# CI calls the same ./checks.sh a dev machine calls.
+# Adding a step that is not in checks.sh breaks the local = CI promise.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: ./checks.sh --e2e
+
+  pr-title:
+    # Enable this job only on projects that squash merge, because the commit-msg
+    # hook never sees the message that lands on main during a squash.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# bloop:end checks-workflow

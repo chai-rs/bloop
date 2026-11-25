@@ -1,0 +1,26 @@
+flowchart TD
+  A["bin/detect"] --> B{"git repo?"}
+  B -- "yes" --> C["ROOT = git toplevel<br/>read branch + remote"]
+  B -- "no" --> D["ROOT = pwd"]
+  C --> E["scan the repo"]
+  D --> E
+  E --> E1["stack<br/>language, packageManager,<br/>framework, kindGuess"]
+  E --> E2["static<br/>lint, format,<br/>typecheck, boundary"]
+  E --> E3["verification<br/>unit, integration,<br/>e2e, checks.sh"]
+  E --> E4["prose + bloop<br/>ARCHITECTURE.md, AGENTS.md,<br/>.bloop/config.json"]
+  E1 --> F{"config and<br/>ARCHITECTURE.md present?"}
+  E2 --> F
+  E3 --> F
+  E4 --> F
+  F -- "no" --> S1["stage = architecting:init"]
+  F -- "yes" --> G{"config has a contract key?"}
+  G -- "no" --> S2["stage = architecting:contract"]
+  G -- "yes" --> H{"checks.sh and<br/>AGENTS.md present?"}
+  H -- "no" --> S3["stage = architecting:guardrails"]
+  H -- "yes" --> S4["stage = ready"]
+  S1 --> O{"called with --brief?"}
+  S2 --> O
+  S3 --> O
+  S4 --> O
+  O -- "no" --> J["full JSON<br/>for the skills"]
+  O -- "yes" --> K["one line<br/>for the SessionStart hook"]

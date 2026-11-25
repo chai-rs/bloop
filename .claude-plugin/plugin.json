@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "bloop",
+  "displayName": "Bloop",
+  "version": "0.1.0",
+  "description": "A six-box SDLC for AI agents: Architecting, Issue/Story/Task, Planning, Build, Review, Deliver. The contract is the real thing, the gate is a machine, review reads evidence, humans approve contracts and merges",
+  "author": {
+    "name": "chai-rs"
+  },
+  "license": "GPL-3.0-or-later",
+  "keywords": [
+    "sdlc",
+    "workflow",
+    "contract-first",
+    "verification",
+    "evidence",
+    "issue-tracker",
+    "handdraw"
+  ],
+  "skills": [
+    "./skills/"
+  ]
+}

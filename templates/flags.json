@@ -1,0 +1,13 @@
+{
+  "_comment": "Every flag needs an owner and a removeWhen. A flag without both is litter nobody dares delete.",
+  "flags": [
+    {
+      "key": "example_new_checkout",
+      "description": "new checkout, internal staff first",
+      "owner": "<a person, not a team>",
+      "removeWhen": "<a checkable condition, e.g. two weeks after 100% rollout>",
+      "default": false,
+      "issue": "<the issue-id that opened this flag>"
+    }
+  ]
+}

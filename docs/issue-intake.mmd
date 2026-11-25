@@ -1,0 +1,24 @@
+flowchart TD
+  A["a piece of work somebody wants"] --> B1["typed straight to the agent"]
+  A --> B2["an issue URL pasted in<br/>GitHub / Linear / Jira"]
+  A --> B3["tracker-sync pull<br/>(not in the MVP)"]
+
+  B1 --> R["/bloop:restate"]
+  B2 --> F{"is that tracker's MCP<br/>in this session?"}
+  F -- "yes" --> D["pull title, body and comments<br/>through the MCP"]
+  F -- "no" --> N["say plainly it cannot be read<br/>and ask for the text instead"]
+  D --> R
+  N --> R
+  B3 -.-> R
+
+  R --> Q["four questions<br/>what is the problem · who hurts<br/>how do we know it is fixed · what we will not do"]
+  Q --> W["write .bloop/issues/<br/>YYYY-MM-DD-slug/restate.md"]
+  W --> S["the source of truth is the repo,<br/>not the tracker"]
+  S --> NX["box 3 Planning<br/>/bloop:plan"]
+
+  S -.-> P{"provider is not local?"}
+  P -. "yes" .-> PS["tracker-sync push<br/>(not in the MVP)"]
+  P -. "no" .-> PE["done, nothing to sync"]
+
+  classDef todo stroke-dasharray: 5 5
+  class B3,PS,P todo

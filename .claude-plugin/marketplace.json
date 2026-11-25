@@ -1,0 +1,17 @@
+{
+  "name": "bloop",
+  "owner": {
+    "name": "chai-rs"
+  },
+  "metadata": {
+    "description": "A six-box SDLC for AI agents",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "bloop",
+      "source": "./",
+      "description": "A six-box SDLC for AI agents: Architecting, Issue/Story/Task, Planning, Build, Review, Deliver"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+flowchart TD
+  A["bin/ship &lt;issue-id&gt;"] --> B{"decision.md approves it?"}
+  B -- "no" --> X1["fail: box 5 Review is not done,<br/>or nobody signed an ESCALATE"]
+  B -- "yes" --> C{"the worktree is clean?"}
+  C -- "no" --> X2["fail: commit or stash first,<br/>syncing over a dirty tree loses work"]
+  C -- "yes" --> D{"--dry-run?"}
+  D -- "yes" --> M["print every command it would run,<br/>change nothing"]
+  D -- "no" --> E["fetch origin, if there is one"]
+  E --> F{"deliver.sync"}
+  F -- "rebase" --> G["git rebase onto the base"]
+  F -- "merge" --> H["git merge the base in"]
+  G --> I{"conflicts?"}
+  H --> I
+  I -- "yes" --> J["abort, leaving the worktree as it was.<br/>exit 1, a person resolves it"]
+  I -- "no" --> K["run bin/gate --e2e inside the worktree"]
+  K --> L{"gate green?"}
+  L -- "no" --> N["exit 1: back to box 4 Build"]
+  L -- "yes" --> O{"--push given?"}
+  O -- "yes" --> P["push, force-with-lease after a rebase.<br/>Never the base branch"]
+  O -- "no" --> Q{"--merge given?"}
+  P --> Q
+  Q -- "no" --> R["exit 0: synced and green"]
+  Q -- "yes" --> S{"gh and origin?"}
+  S -- "yes" --> T["gh pr merge, using git.mergeStyle"]
+  S -- "no" --> U["git merge --no-ff locally.<br/>A normal outcome, not a fallback"]
+  T --> V["print the sha"]
+  U --> V
