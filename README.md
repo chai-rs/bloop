@@ -13,7 +13,7 @@ The contract is the real thing · the gate is a machine · review reads evidence
 | 5 | Review | Review that reads evidence, not someone's word for it |
 | 6 | Deliver | Merge, watch production, turn lessons into guardrails |
 
-**All six boxes exist.** None of them has run on a real issue yet, so treat the version number literally.
+**All six boxes exist.** None of them has run on a real issue yet, so treat it as pre-release.
 
 ## Install
 
@@ -33,6 +33,28 @@ To work on bloop itself, point the marketplace at your own clone instead.
 ```
 /plugin marketplace add ./path/to/your/clone
 ```
+
+## Update
+
+`plugin.json` carries no `version` on purpose. Claude Code then uses the commit, so every merge to `main` is a new version. A fixed version would hold everyone on the old copy until somebody remembered to bump it.
+
+Claude Code does not update a marketplace like this one on its own unless you turn that on. Turn it on once, in `/plugin` → Marketplaces → bloop → auto-update. Claude Code then checks a few minutes after the first message of a session and tells you to run `/reload-plugins`.
+
+To update now instead, run these inside Claude Code
+
+```
+/plugin marketplace update bloop
+```
+
+then this in a terminal
+
+```bash
+claude plugin update bloop@bloop
+```
+
+then `/reload-plugins` in the session.
+
+A clone added with `./path/to/your/clone` loads in place. `git pull` there, then `/reload-plugins`. No update command is needed.
 
 ## Use
 
@@ -60,11 +82,12 @@ To work on bloop itself, point the marketplace at your own clone instead.
 .claude-plugin/plugin.json       the plugin itself
 .claude-plugin/marketplace.json  lets you install it from your own machine
 bin/detect                       reads the repo, returns JSON: what exists, what is missing, where to start
-bin/job                          reads .bloop/issues/, returns JSON: which box each issue is in
+bin/job                          reads .bloop/issues/, returns JSON: which box each issue is in. --board builds the board view
 bin/work                         creates the worktree and branch <type>/<issue-id>
 bin/gate                         runs checks.sh and keeps the raw output as evidence
 bin/trust                        measures the revert rate, which is the evidence for raising trustLevel
 bin/ship                         box 6 Deliver's lever: sync, re-gate, push, merge
+bin/archive                      moves a closed issue into .bloop/archive/, in a commit holding only the move
 bin/metrics                      DORA and our own numbers, read from the issue folders
 agents/comment-cleanser.md       hunts comments, and may only touch comments
 agents/reviewer-code.md          box 5 Review: correctness, simplicity, repo conventions
@@ -72,7 +95,7 @@ agents/reviewer-security.md      box 5 Review: auth, untrusted input, secrets, m
 agents/reviewer-ux.md            box 5 Review: what a person will hit
 agents/reviewer-ui.md            box 5 Review: what is on the screen
 agents/approver.md               box 5 Review: decides APPROVE or ESCALATE
-hooks/hooks.json                 SessionStart, telling the agent where this repo stands
+hooks/hooks.json                 SessionStart tells the agent where this repo stands · the other hooks keep the board fresh
 references/report-style.md       the shape of reports and menus, shared by every skill
 references/diagram-rules.md      when to draw mermaid in an issue file, and when not to
 references/code-rules.md         how to write code: the smallest change that is still complete
@@ -119,6 +142,7 @@ site/                            a web page explaining box 1 Architecting
 * **Never propose ripping out something that works.** The recommendation follows whatever `bin/detect` found in the repo
 * **Rerunnable.** Anything written into somebody else's file carries a `bloop:managed` marker, and a rerun replaces that block
 * **No central index.** An issue keeps its state in its own folder, because an index file is where parallel sessions overwrite each other
+* **Folders never move while work is open.** `bin/job --board` gives one folder per state as gitignored symlinks, rebuilt from the files. Only a closed issue moves, into `.bloop/archive/`, on the base branch
 
 ## Licence
 

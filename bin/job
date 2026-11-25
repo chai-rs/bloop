@@ -6,9 +6,14 @@
 # central index file, because a central index is where parallel sessions overwrite
 # each other.
 #
-#   bin/job            JSON for every issue
-#   bin/job --brief    one line, for the hook
-#   bin/job <issue-id> JSON for a single issue
+#   bin/job              JSON for every open issue
+#   bin/job --all        the same, plus the archived ones
+#   bin/job --brief      one line, for the hook
+#   bin/job --board      rebuild the board: one folder per state, holding symlinks
+#   bin/job <issue-id>   JSON for a single issue, open or archived
+#
+# The board is a view, never the truth. It is rebuilt from the files every time
+# and gitignored, because folders moved on two branches do not merge.
 set -u
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -32,6 +37,9 @@ tm() {
 
 PROVIDER=$(tm provider); [ -n "$PROVIDER" ] || PROVIDER=local
 ISSUES_DIR=$(tm issuesDir); [ -n "$ISSUES_DIR" ] || ISSUES_DIR=.bloop/issues
+# Both sit beside the issues folder, so a board symlink is always ../../<issues>/<id>
+ARCHIVE_DIR="$(dirname "$ISSUES_DIR")/archive"
+BOARD_DIR="$(dirname "$ISSUES_DIR")/board"
 
 if [ "$PROVIDER" != local ]; then
   printf 'bloop: provider is %s, so the issues do not live in this repo\n' "$PROVIDER" >&2
@@ -239,11 +247,13 @@ bad_paths() {
 
 emit_one() {
   d=$1
+  archived=$2
   id=$(basename "$d")
   classify "$d"
   files=$(ls "$d" 2>/dev/null | tr '\n' ' ')
   printf '    {\n'
   printf '      "id": %s,\n' "$(jstr "$id")"
+  printf '      "archived": %s,\n' "$archived"
   printf '      "fr": %s,\n' "$(jstr "$FR")"
   printf '      "box": %s,\n' "$BOX"
   printf '      "state": %s,\n' "$(jstr "$STATE")"
@@ -261,48 +271,117 @@ emit_one() {
 }
 
 list_dirs() {
-  [ -d "$ISSUES_DIR" ] || return 0
-  find "$ISSUES_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
+  [ -d "$1" ] || return 0
+  find "$1" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
+}
+
+# The board folder an issue belongs in. Every folder is numbered so ls keeps this
+# order: what waits on a person first, then broken records, then the boxes, whose
+# numbers match the box numbers, then the closed ones.
+board_group() {
+  case "$STATE" in
+    needs-info|awaiting-human|awaiting-approval|escalated|blocked) echo 0-waiting ;;
+    bad-*) echo 1-broken ;;
+    done) echo 7-done ;;
+    rejected) echo 8-rejected ;;
+    *)
+      case "$BOX" in
+        2) echo 2-intake ;;
+        3) echo 3-plan ;;
+        4) echo 4-build ;;
+        5) echo 5-review ;;
+        *) echo 6-ship ;;
+      esac ;;
+  esac
+}
+
+build_board() {
+  if ! grep -qxF "$BOARD_DIR/" .gitignore 2>/dev/null; then
+    printf '%s/\n' "$BOARD_DIR" >> .gitignore
+    printf 'bloop: added %s/ to .gitignore, so the board never lands in a commit\n' "$BOARD_DIR" >&2
+  fi
+
+  # Remove only what this script made: symlinks, then the folders they leave empty.
+  # Anything else a person put in there survives.
+  if [ -d "$BOARD_DIR" ]; then
+    find "$BOARD_DIR" -type l -exec rm -f {} +
+    find "$BOARD_DIR" -mindepth 1 -depth -type d -empty -exec rmdir {} +
+  fi
+  mkdir -p "$BOARD_DIR"
+
+  LINK_BASE="../../$(basename "$ISSUES_DIR")"
+  for d in $(list_dirs "$ISSUES_DIR"); do
+    id=$(basename "$d")
+    classify "$d"
+    g=$(board_group)
+    mkdir -p "$BOARD_DIR/$g"
+    ln -s "$LINK_BASE/$id" "$BOARD_DIR/$g/$id"
+  done
+
+  printf 'bloop: board rebuilt in %s\n' "$BOARD_DIR"
+  for g in 0-waiting 1-broken 2-intake 3-plan 4-build 5-review 6-ship 7-done 8-rejected; do
+    [ -d "$BOARD_DIR/$g" ] || continue
+    n=$(find "$BOARD_DIR/$g" -mindepth 1 -maxdepth 1 -type l | wc -l | tr -d ' ')
+    printf '  %-20s %s\n' "$g" "$n"
+  done
 }
 
 ONE=''
 BRIEF=0
-case "${1:-}" in
-  --brief) BRIEF=1 ;;
-  '') ;;
-  -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
-  *) ONE=$1 ;;
-esac
+ALL=0
+BOARD=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --brief) BRIEF=1 ;;
+    --all)   ALL=1 ;;
+    --board) BOARD=1 ;;
+    -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
+    *)  [ -n "$ONE" ] && { printf 'bloop: one issue at a time\n' >&2; exit 64; }
+        ONE=$1 ;;
+  esac
+  shift
+done
 
-if [ -n "$ONE" ]; then
-  D="$ISSUES_DIR/$ONE"
-  if [ ! -d "$D" ]; then
-    printf 'bloop: no issue named %s in %s\n' "$ONE" "$ISSUES_DIR" >&2
-    exit 1
-  fi
-  printf '{\n  "issues": [\n'; emit_one "$D"; printf '\n  ]\n}\n'
+if [ "$BOARD" = 1 ]; then
+  build_board
   exit 0
 fi
 
-TOTAL=0; OPEN=0; BLOCKED=0; REJECTED=0; READY=0; DONE=0
-for d in $(list_dirs); do
+if [ -n "$ONE" ]; then
+  if [ -d "$ISSUES_DIR/$ONE" ]; then
+    D="$ISSUES_DIR/$ONE"; ARCH=false
+  elif [ -d "$ARCHIVE_DIR/$ONE" ]; then
+    D="$ARCHIVE_DIR/$ONE"; ARCH=true
+  else
+    printf 'bloop: no issue named %s in %s or %s\n' "$ONE" "$ISSUES_DIR" "$ARCHIVE_DIR" >&2
+    exit 1
+  fi
+  printf '{\n  "issues": [\n'; emit_one "$D" "$ARCH"; printf '\n  ]\n}\n'
+  exit 0
+fi
+
+ARCHIVED=$(list_dirs "$ARCHIVE_DIR" | wc -l | tr -d ' ')
+
+# CLOSED, not DONE: classify sets DONE to the number of finished slices
+TOTAL=0; OPEN=0; BLOCKED=0; REJECTED=0; READY=0; CLOSED=0
+for d in $(list_dirs "$ISSUES_DIR"); do
   TOTAL=$((TOTAL + 1))
   classify "$d"
   case "$STATE" in
     rejected) REJECTED=$((REJECTED + 1)) ;;
     needs-info|awaiting-human|awaiting-approval|blocked|escalated) BLOCKED=$((BLOCKED + 1)) ;;
     approved|merged|deployed|watched) READY=$((READY + 1)) ;;
-    done) DONE=$((DONE + 1)) ;;
+    done) CLOSED=$((CLOSED + 1)) ;;
     *) OPEN=$((OPEN + 1)) ;;
   esac
 done
 
 if [ "$BRIEF" = 1 ]; then
   if [ "$TOTAL" = 0 ]; then
-    printf 'bloop: no issues in %s yet\n' "$ISSUES_DIR"
+    printf 'bloop: no open issues in %s · archived %s\n' "$ISSUES_DIR" "$ARCHIVED"
   else
-    printf 'bloop: %s issues · ready to continue %s · waiting on a human %s · in box 6 %s · done %s · rejected %s\n' \
-      "$TOTAL" "$OPEN" "$BLOCKED" "$READY" "$DONE" "$REJECTED"
+    printf 'bloop: %s issues · ready to continue %s · waiting on a human %s · in box 6 %s · done %s · rejected %s · archived %s\n' \
+      "$TOTAL" "$OPEN" "$BLOCKED" "$READY" "$CLOSED" "$REJECTED" "$ARCHIVED"
   fi
   exit 0
 fi
@@ -311,12 +390,19 @@ printf '{\n'
 printf '  "root": %s,\n' "$(jstr "$ROOT")"
 printf '  "provider": %s,\n' "$(jstr "$PROVIDER")"
 printf '  "issuesDir": %s,\n' "$(jstr "$ISSUES_DIR")"
-printf '  "counts": { "total": %s, "open": %s, "blocked": %s, "ready": %s, "rejected": %s },\n' \
-  "$TOTAL" "$OPEN" "$BLOCKED" "$READY" "$REJECTED"
+printf '  "archiveDir": %s,\n' "$(jstr "$ARCHIVE_DIR")"
+printf '  "counts": { "total": %s, "open": %s, "blocked": %s, "ready": %s, "rejected": %s, "archived": %s },\n' \
+  "$TOTAL" "$OPEN" "$BLOCKED" "$READY" "$REJECTED" "$ARCHIVED"
 printf '  "issues": [\n'
 sep=''
-for d in $(list_dirs); do
-  printf '%s' "$sep"; emit_one "$d"; sep=',
+for d in $(list_dirs "$ISSUES_DIR"); do
+  printf '%s' "$sep"; emit_one "$d" false; sep=',
 '
 done
+if [ "$ALL" = 1 ]; then
+  for d in $(list_dirs "$ARCHIVE_DIR"); do
+    printf '%s' "$sep"; emit_one "$d" true; sep=',
+'
+  done
+fi
 printf '\n  ]\n}\n'

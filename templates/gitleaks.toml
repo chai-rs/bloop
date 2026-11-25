@@ -5,7 +5,7 @@ useDefault = true
 [allowlist]
 description = "known false positives"
 paths = [
-  '''\.bloop/issues/.*/evidence/.*''',
+  '''\.bloop/(issues|archive)/.*/evidence/.*''',
   '''.*\.example$''',
   '''.*/fixtures/.*''',
 ]

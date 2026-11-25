@@ -76,10 +76,33 @@ Anything this issue chose not to do goes under `## What was left undone`, with t
 
 | Where the issues live | How it closes |
 | --- | --- |
-| `local` | The files are the record. Nothing to close |
+| `local` | The files are the record. Archive the folder, below |
 | A provider | Close it there, then say what you closed and where |
 
 Run `bin/job <issue-id>` one last time. It reports `done` when `retro.md` exists and every `REPEATS` row carries an issue id.
+
+### Archive the folder
+
+Once `bin/job` says `done`, move the folder out of the open issues:
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/archive" <issue-id>
+"$CLAUDE_PLUGIN_ROOT/bin/archive" <issue-id> --apply
+```
+
+The first call changes nothing and says what would happen. The second moves the folder to the archive, in a commit that holds only the move.
+
+It refuses in five cases. Report the reason and leave the folder where it is:
+
+* Not in the main checkout, or not on `loop.baseBranch`. A folder moved on a branch conflicts with the same folder on the base
+* The state is not `done`, `rejected`, or `rolled-back` with a `retro.md`
+* A worktree for the issue still exists
+* The issue folder has uncommitted changes, or something else is staged
+* The archive already holds a folder with that id
+
+**Never move the folder by hand.** The checks above are the reason the script exists.
+
+A rejected issue can be archived the same way, at any time, without a retro.
 
 **Box 6 Deliver · done** `<issue-id>` · `<n>` lessons · `<n>` became guardrails
 

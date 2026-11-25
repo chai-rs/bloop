@@ -1,0 +1,16 @@
+flowchart TD
+  start(["bin/archive &lt;id&gt; [--apply]"]) --> found{"in issues/?"}
+  found -- "no, already in archive/" --> ok0(["exit 0 · already archived"])
+  found -- no --> x1(["refuse · no such issue"])
+  found -- yes --> main{"main checkout<br/>on loop.baseBranch?"}
+  main -- no --> x2(["refuse · a move on a branch conflicts"])
+  main -- yes --> state{"bin/job state"}
+  state -- "done · rejected ·<br/>rolled-back with retro.md" --> wt{"worktree for<br/>this issue?"}
+  state -- other --> x3(["refuse · not closed"])
+  wt -- yes --> x4(["refuse · remove the worktree first"])
+  wt -- no --> clean{"folder clean and<br/>nothing else staged?"}
+  clean -- no --> x5(["refuse · the commit must hold only the move"])
+  clean -- yes --> apply{"--apply?"}
+  apply -- no --> dry(["print the plan as JSON"])
+  apply -- yes --> mv["git mv issues/&lt;id&gt; archive/&lt;id&gt;<br/>commit: chore(bloop): archive &lt;id&gt;"]
+  mv --> out(["print JSON with the commit"])
