@@ -124,6 +124,17 @@ Set `STOPPED` to the reason, and add one line to `## Stops`. When the stop clear
 
 An id: go to step 1 with it. Nothing: the run is over. Then list every issue with `waiting` set, oldest first, and ask once whether to go through them now. On a yes, take each one in one-issue mode.
 
+## Step 6 · Fuzz, when the config says so
+
+Fuzzing runs here, in this session, because its workers are agents and a subagent cannot start them. It only opens issues, so it needs no one's yes. It counts against no budget.
+
+| When | Run | On `due: true` |
+| --- | --- | --- |
+| After every `deliver` that merged | `"$CLAUDE_PLUGIN_ROOT/bin/fuzz-due" --merged <issue-id>` | `/bloop:fuzz-swarm` with that JSON, then carry on |
+| At the end of a `--next` run that merged something | `"$CLAUDE_PLUGIN_ROOT/bin/fuzz-due" --run <id>,<id>` with every issue it merged | `/bloop:fuzz-swarm` with that JSON, before the final report |
+
+The issues it opens are new work. At `autonomous`, `fuzz-swarm` hands them back to you. Below it they wait on the board for the next run.
+
 ## Report
 
 **auto · stopped** `<reason>` · `<n>` skill runs of `<budget>`

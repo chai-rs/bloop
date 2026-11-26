@@ -95,6 +95,14 @@ It uses `gh pr merge` with `git.mergeStyle` when there is an origin and `gh` is 
 
 On success, set `STATUS: MERGED`, `MERGE: <short sha>` and `MERGED-AT: <YYYY-MM-DD>`.
 
+### Fuzz what just merged, when the config says so
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/fuzz-due" --merged <issue-id>
+```
+
+`due: true` means `fuzz.autoRun.afterMerge` names this issue's `RISK`, or enough issues have merged since the last run. Start `/bloop:fuzz-swarm` with that JSON. It only opens issues, so it needs no one's yes. When `/bloop:auto` is driving this run, skip this: it checks the same thing itself, where fuzzing can start the workers it needs.
+
 ## Step 4 · The deploy is somebody else's job
 
 | `deliver.deployCommand` | What you do |

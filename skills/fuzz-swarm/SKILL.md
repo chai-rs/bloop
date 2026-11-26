@@ -32,7 +32,13 @@ Below `loop.trustLevel` of `autonomous` it does one thing: **opens issues**. Not
   "dimensions": ["payload", "sequence", "concurrency", "resource", "ui"],
   "cases": 200,
   "maxFindings": 5,
-  "command": "go test ./... -run Fuzz"
+  "command": "go test ./... -run Fuzz",
+  "autoRun": {
+    "afterMerge": ["high"],
+    "afterAutoNext": false,
+    "everyMerges": 0,
+    "schedule": null
+  }
 }
 ```
 
@@ -46,6 +52,28 @@ Below `loop.trustLevel` of `autonomous` it does one thing: **opens issues**. Not
 | `command` | How this project runs a case, when it has its own harness | none, drive the code directly |
 
 Without a `fuzz` section, say so and ask before running with defaults. **A run nobody asked for burns time and can bury the backlog.**
+
+`autoRun` says when fuzzing starts without anyone asking. Each trigger is on or off by itself, and all are off by default.
+
+| key | Starts a run | Off |
+| --- | --- | --- |
+| `afterMerge` | after `deliver` merges an issue whose `RISK` is in the list, aimed at what that issue touched | `[]` |
+| `afterAutoNext` | at the end of a `/bloop:auto --next` run, aimed at what that run merged | `false` |
+| `everyMerges` | once this many issues have merged since the last run, aimed at all of them | `0` |
+| `schedule` | on a cron, such as `0 22 * * 5` for Friday nights, aimed at what merged since the last run | `null` |
+
+`bin/fuzz-due` decides whether a trigger fired and returns the targets. Nothing else decides it.
+
+## How a run starts
+
+| Started by | What you get | What to do |
+| --- | --- | --- |
+| A person | nothing | Choose the targets in step 1 |
+| `deliver`, `auto` or a schedule | the JSON of `bin/fuzz-due`, with `reasons` and `targets` | Say the reason in one line. Aim at `targets`, or choose them in step 1 when the list is empty |
+| `/bloop:fuzz-swarm --scheduled` | nothing | Run `"$CLAUDE_PLUGIN_ROOT/bin/fuzz-due" --scheduled`. Not due means nothing merged since the last run: say so in one line and stop |
+
+A run that started by itself still follows every rule here, `maxFindings` and `loop.concurrency` included.
+
 
 ## Step 1 · Choose the targets
 

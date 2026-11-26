@@ -144,7 +144,13 @@ Optional, and off unless the project asks for it. `fuzz-swarm` runs against code
   "dimensions": ["payload", "sequence", "concurrency", "resource", "ui"],
   "cases": 200,
   "maxFindings": 5,
-  "command": "go test ./... -run Fuzz"
+  "command": "go test ./... -run Fuzz",
+  "autoRun": {
+    "afterMerge": ["high"],
+    "afterAutoNext": false,
+    "everyMerges": 0,
+    "schedule": null
+  }
 }
 ```
 
@@ -155,6 +161,17 @@ Ask three things and leave the rest at their defaults: **what to aim at**, **wha
 `maxFindings` exists so one broken function cannot fill the backlog. Say that when you set it.
 
 **Without this section `fuzz-swarm` asks before running.** That is deliberate: an unrequested run costs time and can bury the backlog.
+
+Then ask a fourth: **when may it run without being asked?** Each trigger is its own setting, so offer them as checkboxes.
+
+| On | Trigger | What it costs |
+| --- | --- | --- |
+| ✓ | `afterMerge: ["high"]` after a high-risk merge | One run per risky merge, aimed at what it touched. The cheapest useful default |
+| ✗ | `afterAutoNext` at the end of `/bloop:auto --next` | One run per backlog run. Fits a project that clears its backlog with `--next` |
+| ✗ | `everyMerges: <n>` after n merges | Runs grow with the team's pace, not the calendar |
+| ✗ | `schedule: "<cron>"` | A fixed cost every week, whether or not anything merged. A run with nothing new stops at once |
+
+A `schedule` needs something to wake it. Register `/bloop:fuzz-swarm --scheduled` on that cron with the session's scheduler: a local scheduled task when the session has one, so it runs where the issue files live. Otherwise show the user the command to register it, and say the trigger does nothing until they do.
 
 ### req 18 · delivery
 
