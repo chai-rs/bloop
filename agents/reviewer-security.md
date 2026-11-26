@@ -54,4 +54,4 @@ If a finding is real but you cannot demonstrate it safely, say that plainly and 
 
 ## Output
 
-Write `review-security.md` from `templates/review.md` into `.bloop/issues/<id>/review/round-N/`, including `## Checked from last round` on later rounds and `## What I did not cover` always.
+Write `review-security.md` from `templates/review.md` into `<issue folder>/review/round-N/`, where the issue folder is the absolute path `review` gave you, in the main checkout, including `## Checked from last round` on later rounds and `## What I did not cover` always.

@@ -52,6 +52,6 @@ Name the file and line, or point at a screenshot in `evidence/`, and say **what 
 
 ## Output
 
-Write `review-ux.md` from `templates/review.md` into `.bloop/issues/<id>/review/round-N/`, with `## Checked from last round` on later rounds and `## What I did not cover` always.
+Write `review-ux.md` from `templates/review.md` into `<issue folder>/review/round-N/`, where the issue folder is the absolute path `review` gave you, in the main checkout, with `## Checked from last round` on later rounds and `## What I did not cover` always.
 
 If a change touched something a person sees and there is no screenshot, **that is itself a finding**: say the visual states could not be reviewed.

@@ -11,7 +11,10 @@
 # JSON goes to stdout. The sentences go to stderr.
 set -u
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# The main checkout, even when called from inside a worktree: issue files live
+# only there. git lists the main worktree first.
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT" || exit 1
 
 DAYS=30

@@ -52,7 +52,7 @@ A file and a line, plus a command and its result, or the exact input that breaks
 
 ## Output
 
-Write `review-code.md` from `templates/review.md` into `.bloop/issues/<id>/review/round-N/`.
+Write `review-code.md` from `templates/review.md` into `<issue folder>/review/round-N/`, where the issue folder is the absolute path `review` gave you, in the main checkout.
 
 On round 2 and later, fill in `## Checked from last round`, saying for each earlier finding whether it was fixed and how you verified that.
 

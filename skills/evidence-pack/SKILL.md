@@ -21,7 +21,7 @@ If the evidence says "tested and it passed", the reviewer has to run it themselv
 
 ## Steps
 
-1. `bin/gate --evidence .bloop/issues/<id>/evidence/slice-N.txt` runs the gate and captures the raw output along with the command, the time, the commit and the exit code
+1. `bin/gate --evidence "$(bin/job --dir <id>)/evidence/slice-N.txt"` runs the gate and captures the raw output along with the command, the time, the commit and the exit code
 2. If this slice's check is not part of `checks.sh`, for example a request you fire by hand, run it and append to the same file, with a line naming the command
 3. Write the row into the `## Round N` table in `build.md`: `| slice | commit | check | result | evidence |`
 4. The `result` column holds what you actually saw, such as `201, 3/3 pass`, never just `passed`
