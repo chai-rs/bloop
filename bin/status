@@ -1,0 +1,170 @@
+#!/bin/sh
+# bloop · bin/status
+#
+# What the system can do right now, read from files only. For each functional
+# requirement and each journey in ARCHITECTURE.md, whether a person can use it
+# today. /bloop:docs and /bloop:report print what this says, never their own guess.
+#
+#   bin/status     JSON to stdout, one summary line to stderr
+#
+# An issue counts as live only when deliver.md has a merge commit and a deploy
+# date, it was not rolled back, and no flag that is off by default names it.
+set -u
+
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+JOB="$(dirname "$0")/job"
+ARCH=ARCHITECTURE.md
+[ -f "$ARCH" ] || { printf 'bloop: no %s yet, run /bloop:init first\n' "$ARCH" >&2; exit 1; }
+
+TMP=$(mktemp -d 2>/dev/null || mktemp -d -t bloop) || exit 1
+trap 'rm -rf "$TMP"' EXIT
+
+# Fields are split on the unit separator, not a tab: read collapses runs of
+# whitespace delimiters, so an empty field between two tabs would vanish
+US=$(printf '\037')
+
+header() { sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -1; }
+# Text for a JSON string: no double quotes, no backslashes, no tabs
+clean() { tr '"\\\t' "'/ "; }
+jstr() { if [ -z "${1:-}" ] || [ "$1" = none ]; then printf 'null'; else printf '"%s"' "$1"; fi; }
+section() { sed -n "/^## $1\$/,/^## /p" "$ARCH" | sed '/^## /d'; }
+
+# --- the issues, one TSV row each: id dir fr kind box state title merge mergedAt deployedAt status
+JSON=$("$JOB" --all 2>/dev/null) || { printf 'bloop: bin/job failed, run it on its own to see why\n' >&2; exit 1; }
+ISSUES_DIR=$(printf '%s\n' "$JSON" | sed -n 's/^  "issuesDir": "\(.*\)",$/\1/p')
+ARCHIVE_DIR=$(printf '%s\n' "$JSON" | sed -n 's/^  "archiveDir": "\(.*\)",$/\1/p')
+
+printf '%s\n' "$JSON" | awk -F'"' '
+  /^      "id":/       { id=$4 }
+  /^      "archived":/ { arch = ($0 ~ /true/) ? 1 : 0 }
+  /^      "fr":/       { fr = (NF >= 5) ? $4 : "" }
+  /^      "box":/      { box=$3; gsub(/[^0-9]/, "", box) }
+  /^      "state":/    { st = (NF >= 5) ? $4 : "" }
+  /^      "kind":/     { kind = (NF >= 5) ? $4 : "" }
+  /^      "next":/     { printf "%s\037%s\037%s\037%s\037%s\037%s\n", id, arch, fr, kind, box, st }
+' > "$TMP/raw"
+
+# Issues that a flag hides: on by default is live, off by default is not
+FLAGS=''
+for f in flags.json .bloop/flags.json; do [ -f "$f" ] && FLAGS=$f && break; done
+: > "$TMP/off"
+if [ -n "$FLAGS" ]; then
+  tr -d '\n' < "$FLAGS" | tr '}' '\n' | while IFS= read -r obj; do
+    iss=$(printf '%s' "$obj" | sed -n 's/.*"issue"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    printf '%s' "$obj" | grep -q '"default"[[:space:]]*:[[:space:]]*false' || continue
+    [ -n "$iss" ] && printf '%s\n' "$iss"
+  done > "$TMP/off"
+fi
+
+: > "$TMP/issues"
+while IFS="$US" read -r id arch fr kind box st; do
+  [ "$st" = rejected ] && continue
+  if [ "$arch" = 1 ]; then d="$ARCHIVE_DIR/$id"; else d="$ISSUES_DIR/$id"; fi
+  title=$(sed -n 's/^# //p' "$d/spec.md" 2>/dev/null | head -1 | clean)
+  [ -n "$title" ] || title=$(printf '%s' "$id" | sed 's/^[0-9]*-[0-9]*-[0-9]*-//; s/-/ /g')
+  merge=$(header "$d/deliver.md" MERGE)
+  mat=$(header "$d/deliver.md" MERGED-AT)
+  dat=$(header "$d/deliver.md" DEPLOYED-AT)
+  dst=$(header "$d/deliver.md" STATUS)
+  if [ "$dst" = ROLLED-BACK ]; then s=rolled-back
+  elif [ -n "$merge" ] && [ "$merge" != none ]; then
+    if [ -n "$dat" ] && [ "$dat" != none ]; then s=live; else s=merged; fi
+  else
+    case "$st" in
+      no-intake|needs-info|awaiting-restate|awaiting-human|bad-intake) s=planned ;;
+      *) s=building ;;
+    esac
+  fi
+  case "$s" in live|merged) grep -qx "$id" "$TMP/off" && s=flagged ;; esac
+  printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n' "$id" "$fr" "$kind" "$s" "$title" "$merge" "$mat" "$dat" >> "$TMP/issues"
+done < "$TMP/raw"
+
+rank() { case "$1" in live) echo 6 ;; flagged) echo 5 ;; merged) echo 4 ;; building) echo 3 ;; planned) echo 2 ;; rolled-back) echo 1 ;; *) echo 0 ;; esac; }
+
+# --- requirements: "- FR-1 text" lines under ## Functional requirements
+section 'Functional requirements' | sed -n "s/^- \\(FR-[0-9][0-9]*\\)[[:space:]]*\\(.*\\)\$/\\1$US\\2/p" > "$TMP/frs"
+
+: > "$TMP/frstatus"
+while IFS="$US" read -r fr text; do
+  best=unpicked; bestr=0; open=0; ids=''; since=''
+  while IFS="$US" read -r id ifr kind s title merge mat dat; do
+    [ "$ifr" = "$fr" ] || continue
+    ids="$ids $id"
+    case "$s" in building|planned) open=$((open + 1)) ;; esac
+    r=$(rank "$s"); [ "$r" -gt "$bestr" ] && { bestr=$r; best=$s; }
+    # The earliest deploy. Dates are YYYY-MM-DD, so sort orders them, and dash has no string <
+    if [ "$s" = live ] && { [ -z "$since" ] || [ "$(printf '%s\n%s\n' "$dat" "$since" | sort | head -1)" = "$dat" ]; }; then since=$dat; fi
+  done < "$TMP/issues"
+  printf '%s\037%s\037%s\037%s\037%s\037%s\n' "$fr" "$(printf '%s' "$text" | clean)" "$best" "$open" "$since" "$ids" >> "$TMP/frstatus"
+done < "$TMP/frs"
+
+# --- journeys: "| J1 text | who | FR-1, FR-2 |" rows under ## Journeys
+section 'Journeys' | awk -F'|' '
+  NF >= 5 && $2 ~ /^[[:space:]]*J[0-9]+/ {
+    for (i = 2; i <= 4; i++) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
+    printf "%s\037%s\037%s\n", $2, $3, $4
+  }' > "$TMP/journeys"
+
+# --- JSON
+MAIN=$(git rev-parse --short HEAD 2>/dev/null)
+LAST=$(awk -F"$US" '$4 == "live" { print $8 "\t" $6 }' "$TMP/issues" | sort -r | head -1)
+LASTAT=$(printf '%s' "$LAST" | cut -f1); LASTSHA=$(printf '%s' "$LAST" | cut -f2)
+
+printf '{\n'
+printf '  "asOf": { "main": %s, "lastDeploy": %s, "lastDeployCommit": %s },\n' \
+  "$(jstr "$MAIN")" "$(jstr "$LASTAT")" "$(jstr "$LASTSHA")"
+
+printf '  "frs": ['
+sep=''
+while IFS="$US" read -r fr text best open since ids; do
+  list=$(for i in $ids; do printf '"%s",' "$i"; done | sed 's/,$//')
+  printf '%s\n    { "id": "%s", "text": "%s", "status": "%s", "openIssues": %s, "liveSince": %s, "issues": [%s] }' \
+    "$sep" "$fr" "$text" "$best" "$open" "$(jstr "$since")" "$list"
+  sep=','
+done < "$TMP/frstatus"
+printf '\n  ],\n'
+
+printf '  "journeys": ['
+sep=''
+while IFS="$US" read -r jtext who frlist; do
+  jid=$(printf '%s' "$jtext" | sed -n 's/^\(J[0-9][0-9]*\).*/\1/p')
+  text=$(printf '%s' "$jtext" | sed 's/^J[0-9][0-9]*[[:space:]]*//' | clean)
+  total=0; live=0; missing=''; frs=''
+  for f in $(printf '%s' "$frlist" | tr ',' ' '); do
+    total=$((total + 1)); frs="$frs\"$f\","
+    s=$(awk -F"$US" -v f="$f" '$1 == f { print $3 }' "$TMP/frstatus")
+    if [ "$s" = live ]; then live=$((live + 1)); else missing="$missing\"$f\","; fi
+  done
+  if [ "$total" -gt 0 ] && [ "$live" = "$total" ]; then js=live
+  elif [ "$live" -gt 0 ]; then js=partial
+  else js=not-yet; fi
+  printf '%s\n    { "id": "%s", "text": "%s", "who": "%s", "status": "%s", "frs": [%s], "notLive": [%s] }' \
+    "$sep" "$jid" "$text" "$(printf '%s' "$who" | clean)" "$js" "$(printf '%s' "$frs" | sed 's/,$//')" "$(printf '%s' "$missing" | sed 's/,$//')"
+  sep=','
+done < "$TMP/journeys"
+printf '\n  ],\n'
+
+# What shipped, newest first. The changelog is this list.
+printf '  "shipped": ['
+sep=''
+awk -F"$US" '$4 == "live" || $4 == "merged" || $4 == "flagged" || $4 == "rolled-back"' "$TMP/issues" \
+  | sort -t "$US" -k7,7r -k1,1r \
+  | while IFS="$US" read -r id fr kind s title merge mat dat; do
+      printf '%s\n    { "issue": "%s", "fr": %s, "kind": %s, "status": "%s", "title": "%s", "merge": %s, "mergedAt": %s, "deployedAt": %s }' \
+        "$sep" "$id" "$(jstr "$fr")" "$(jstr "$kind")" "$s" "$title" "$(jstr "$merge")" "$(jstr "$mat")" "$(jstr "$dat")"
+      sep=','
+    done
+printf '\n  ],\n'
+
+# Feature work no requirement asked for. Bugs are expected to have none.
+printf '  "orphans": ['
+awk -F"$US" '($2 == "" || $2 == "none") && $3 != "bug" { printf "%s\"%s\"", sep, $1; sep="," }' "$TMP/issues"
+printf ']\n}\n'
+
+NFR=$(wc -l < "$TMP/frs" | tr -d ' ')
+NLIVE=$(awk -F"$US" '$3 == "live"' "$TMP/frstatus" | wc -l | tr -d ' ')
+NJ=$(wc -l < "$TMP/journeys" | tr -d ' ')
+printf 'bloop: %s of %s requirements live · %s journeys defined\n' "$NLIVE" "$NFR" "$NJ" >&2
