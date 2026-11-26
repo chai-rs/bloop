@@ -1,0 +1,200 @@
+#!/bin/sh
+# bloop · bin/doctor
+#
+# Checks what this project and this machine need so bloop works as the plugin
+# now expects: the plugin's own version, the tools the config names, config keys
+# that were renamed or added, sections ARCHITECTURE.md lacks, .gitignore lines,
+# issue files from older versions, and docs that drifted. Reads only. Fixes nothing.
+#
+#   bin/doctor            JSON to stdout: one object per check. A summary line to stderr
+#   bin/doctor --offline  skip the one network call, the plugin's latest version
+#
+# Each check is ok, info, warn or fail, with what is wrong and the fix.
+set -u
+
+OFFLINE=0
+case "${1:-}" in --offline) OFFLINE=1 ;; '') ;; *) printf 'usage: bin/doctor [--offline]\n' >&2; exit 64 ;; esac
+
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+BIN=$(cd "$(dirname "$0")" && pwd)
+PLUGIN=$(dirname "$BIN")
+CONFIG=.bloop/config.json
+FLAT=$( { tr -d '\n' < "$CONFIG"; } 2>/dev/null | tr -s ' ')
+
+OUT=''; N_OK=0; N_INFO=0; N_WARN=0; N_FAIL=0
+clean() { printf '%s' "$1" | tr '"\\' "'/"; }
+check() { # area id level message fix
+  OUT="$OUT${OUT:+,
+}  {\"area\":\"$1\",\"id\":\"$2\",\"level\":\"$3\",\"message\":\"$(clean "$4")\",\"fix\":\"$(clean "${5:-}")\"}"
+  case "$3" in ok) N_OK=$((N_OK+1));; info) N_INFO=$((N_INFO+1));; warn) N_WARN=$((N_WARN+1));; fail) N_FAIL=$((N_FAIL+1));; esac
+}
+has() { command -v "$1" >/dev/null 2>&1; }
+cfg() { printf '%s' "$FLAT" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1; }
+
+# --- the plugin ----------------------------------------------------------------
+RUNNING=$(basename "$PLUGIN")
+if git -C "$PLUGIN" rev-parse --short=12 HEAD >/dev/null 2>&1; then
+  RUNNING=$(git -C "$PLUGIN" rev-parse --short=12 HEAD)   # a local clone, loaded in place
+fi
+
+LATEST=''
+TMP=$(mktemp 2>/dev/null || mktemp -t bloop) || exit 1
+trap 'rm -f "$TMP"' EXIT
+
+if [ "$OFFLINE" = 0 ]; then
+  REPO=$(tr -d '\n ' < "$HOME/.claude/plugins/known_marketplaces.json" 2>/dev/null \
+    | sed -n 's/.*"bloop":{"source":{"source":"github","repo":"\([^"]*\)".*/\1/p')
+  [ -n "$REPO" ] || REPO=chai-rs/bloop
+  LATEST=$(git ls-remote "https://github.com/$REPO" HEAD 2>/dev/null | cut -c1-12)
+fi
+
+INSTALLS=''
+if has claude; then
+  # One line per bloop install: scope, version, project path
+  INSTALLS=$(claude plugin list --json 2>/dev/null | tr -d '\n' | sed 's/},[[:space:]]*{/}\
+{/g' | grep '"id":[[:space:]]*"bloop@' | while IFS= read -r o; do
+      sc=$(printf '%s' "$o" | sed -n 's/.*"scope":[[:space:]]*"\([^"]*\)".*/\1/p')
+      ve=$(printf '%s' "$o" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
+      pp=$(printf '%s' "$o" | sed -n 's/.*"projectPath":[[:space:]]*"\([^"]*\)".*/\1/p')
+      printf '%s\t%s\t%s\n' "$sc" "$ve" "$pp"
+    done)
+fi
+
+if [ "$OFFLINE" = 1 ]; then
+  check plugin latest info "Skipped the version check, as asked with --offline" "Run bin/doctor without --offline to compare with GitHub"
+elif [ -z "$LATEST" ]; then
+  check plugin latest info "Could not reach GitHub to compare versions" "Run it again online, or use --offline to skip this check"
+fi
+printf '%s\n' "$INSTALLS" | while IFS="$(printf '\t')" read -r sc ve pp; do
+  [ -n "$sc" ] || continue
+  [ "$sc" = project ] || [ "$sc" = local ] && [ "$pp" != "$ROOT" ] && continue
+  if [ -n "$LATEST" ] && [ "$ve" != "$LATEST" ]; then
+    if printf '%s' "$ve" | grep -q '^[0-9][0-9]*\.[0-9]'; then
+      why="pinned to $ve, so it never receives a merge"
+    else
+      why="at $ve, and main is at $LATEST"
+    fi
+    printf 'warn\t%s\t%s\t%s\n' "$sc" "bloop at $sc scope is $why" "claude plugin update bloop@bloop --scope $sc, then /reload-plugins"
+  else
+    printf 'ok\t%s\t%s\t\n' "$sc" "bloop at $sc scope is current ($ve)"
+  fi
+done > "$TMP"
+# Read back here, not in the pipe, so check() adds to OUT in this shell
+while IFS="$(printf '\t')" read -r lv sc msg fix; do
+  [ -n "$lv" ] && check plugin "install-$sc" "$lv" "$msg" "$fix"
+done < "$TMP"
+
+# Two scopes on one project: the project install wins, whatever the user one says
+PROJ=$(printf '%s\n' "$INSTALLS" | awk -F'\t' -v r="$ROOT" '($1=="project"||$1=="local") && $3==r {print $2}' | head -1)
+USERV=$(printf '%s\n' "$INSTALLS" | awk -F'\t' '$1=="user" {print $2}' | head -1)
+if [ -n "$PROJ" ] && [ -n "$USERV" ] && [ "$PROJ" != "$USERV" ]; then
+  check plugin shadowed warn "This project has its own bloop install at $PROJ, which takes the place of the user install at $USERV here" \
+    "claude plugin update bloop@bloop --scope project, or uninstall the project-scope copy"
+fi
+if [ -n "$LATEST" ] && [ "$RUNNING" != "$LATEST" ] && ! printf '%s\n' "$INSTALLS" | awk -F'\t' -v v="$RUNNING" '$2 == v {f=1} END {exit !f}'; then
+  check plugin running info "This session runs bloop $RUNNING, not the installed one" "/reload-plugins, or start a new session"
+fi
+
+# --- tools on this machine -------------------------------------------------------
+has git && check tools git ok "git is installed" || check tools git fail "git is not installed, and bloop cannot run without it" "Install git"
+if git remote get-url origin >/dev/null 2>&1; then
+  if has gh; then
+    gh auth status >/dev/null 2>&1 && check tools gh ok "gh is installed and signed in" \
+      || check tools gh warn "gh is installed but not signed in, so build cannot open a PR and deliver cannot merge one" "gh auth login"
+  else
+    check tools gh warn "The repo has an origin but gh is not installed. build cannot open a PR, and deliver merges locally" "Install the GitHub CLI"
+  fi
+fi
+if [ -d docs/product ] || [ -d .bloop/docs-site ]; then
+  if has node; then
+    major=$(node -v 2>/dev/null | sed 's/^v\([0-9]*\).*/\1/')
+    [ "${major:-0}" -ge 20 ] && check tools node ok "Node.js $(node -v) for the docs preview" \
+      || check tools node warn "Node.js $(node -v) is older than 20, which the docs preview needs" "Install Node.js 20 or newer"
+  else
+    check tools node warn "The project has product docs, but Node.js is not installed, so /bloop:docs --serve cannot run" "Install Node.js 20 or newer"
+  fi
+fi
+# The tools the config says checks.sh uses
+for t in $(cfg lint) $(cfg format) $(cfg typecheck | cut -d' ' -f1) $(cfg boundary) $(cfg unit | cut -d' ' -f1); do
+  case "$t" in
+    golangci-lint|gofmt|go|eslint|biome|ruff|mypy|pytest|cargo|vitest|jest|tsc) bin=$t ;;
+    depguard) bin=golangci-lint ;;
+    *) continue ;;
+  esac
+  case "$bin" in vitest|jest|eslint|biome|tsc) [ -d node_modules ] && continue ;; esac
+  has "$bin" || check tools "$bin" warn "The config names $t, but $bin is not on PATH, so checks.sh will fail" "Install $bin"
+done
+[ -f checks.sh ] && { [ -x checks.sh ] || check tools checks warn "checks.sh is not executable" "chmod +x checks.sh"; }
+if [ -f lefthook.yml ]; then
+  if grep -qs lefthook .git/hooks/pre-commit; then check tools lefthook ok "lefthook git hooks are installed"
+  else check tools lefthook warn "lefthook.yml exists but its git hooks are not installed, so commits skip them" "lefthook install"; fi
+fi
+
+# --- the project's config --------------------------------------------------------
+if [ ! -f "$CONFIG" ]; then
+  check config exists fail "No .bloop/config.json. This project has not been set up with bloop" "/bloop:init"
+else
+  case "$(cfg trustLevel)" in
+    review-before-merge|merge-then-review)
+      check config trustLevel info "loop.trustLevel is $(cfg trustLevel), an old name. It still works, read as $( [ "$(cfg trustLevel)" = review-before-merge ] && echo supervised || echo trusted)" \
+        "Rename it in .bloop/config.json, or let /bloop:guardrails rewrite the loop section" ;;
+  esac
+  printf '%s' "$FLAT" | grep -q '"autoBudget"' || check config autoBudget info "loop.autoBudget is not set, so /bloop:auto stops after 12 skill runs" "Add it with /bloop:guardrails when a backlog needs more"
+  if printf '%s' "$FLAT" | grep -q '"fuzz"[[:space:]]*:[[:space:]]*{'; then
+    printf '%s' "$FLAT" | grep -q '"autoRun"' || check config fuzzAutoRun info "fuzz has no autoRun, so fuzzing only runs when someone asks" "/bloop:guardrails, req 17"
+  fi
+  if printf '%s' "$FLAT" | grep -q '"taskManagement"[^}]*"dir"' && ! printf '%s' "$FLAT" | grep -q '"issuesDir"'; then
+    check config issuesDir warn "taskManagement sets \"dir\", but bloop reads \"issuesDir\". It works only while the folder is the default .bloop/issues" "Rename the key to issuesDir in .bloop/config.json"
+  fi
+fi
+
+# --- ARCHITECTURE.md -------------------------------------------------------------
+if [ -f ARCHITECTURE.md ]; then
+  for h in 'What makes it different' 'Goals' 'Journeys'; do
+    grep -q "^## $h\$" ARCHITECTURE.md || check architecture "$(printf '%s' "$h" | tr ' A-Z' '-a-z')" warn \
+      "ARCHITECTURE.md has no \"## $h\" section, which /bloop:docs and /bloop:report read" "Run /bloop:docs or /bloop:report, which ask for it, or /bloop:init"
+  done
+  NFR=$("$BIN/status" 2>/dev/null | grep -c '"id": "FR-') || :
+  [ "${NFR:-0}" -gt 0 ] && check architecture requirements ok "bin/status reads $NFR requirements" \
+    || check architecture requirements warn "bin/status finds no requirements, so capabilities and reports are empty" "Check the ## Functional requirements section lists FR-<id> items"
+fi
+
+# --- .gitignore --------------------------------------------------------------------
+need_ignore() { [ -e "$1" ] && ! grep -qxF "$1/" .gitignore 2>/dev/null && check gitignore "$1" warn "$1/ exists but is not in .gitignore, so it can land in a commit" "Add the line $1/ to .gitignore"; }
+need_ignore .worktrees
+need_ignore .bloop/board
+need_ignore .bloop/docs-site
+
+# --- issues ------------------------------------------------------------------------
+if [ -x "$BIN/job" ] && [ -f "$CONFIG" ]; then
+  NOKIND=0
+  for d in $("$BIN/job" 2>/dev/null | sed -n 's/^      "id": "\(.*\)",$/\1/p'); do
+    dir=$("$BIN/job" --dir "$d" 2>/dev/null) || continue
+    [ -f "$dir/issue.md" ] && ! grep -q '^KIND:' "$dir/issue.md" && NOKIND=$((NOKIND+1))
+  done
+  [ "$NOKIND" -gt 0 ] && check issues kind info "Open issues without a KIND line: $NOKIND. /bloop:auto never sends a bug among them to /bloop:debug, and reports count them as work no requirement asked for" \
+    "Add KIND: bug or KIND: request as the second line of each issue.md"
+  # Only the counts line: every issue also carries a "done" count of its slices
+  COUNTS=$("$BIN/job" 2>/dev/null | grep '"counts"')
+  BROKEN=$(printf '%s' "$COUNTS" | sed -n 's/.*"broken": \([0-9]*\).*/\1/p')
+  [ "${BROKEN:-0}" -gt 0 ] && check issues broken warn "Issues with a header line bin/job cannot read: $BROKEN" "/bloop:board lists them, with what to run for each"
+  DONE=$(printf '%s' "$COUNTS" | sed -n 's/.*"done": \([0-9]*\).*/\1/p')
+  [ "${DONE:-0}" -gt 0 ] && check issues archive info "Closed issues still among the open ones: $DONE" "bin/archive <id> --apply, on the base branch"
+fi
+
+# --- docs --------------------------------------------------------------------------
+if [ -d docs/product ]; then
+  if "$BIN/docs" --check >/dev/null 2>&1; then check docs current ok "Product docs are current"
+  else check docs current warn "Product docs have a stale block or a leftover placeholder" "/bloop:docs --refresh, then bin/docs --check"; fi
+fi
+if [ -f .bloop/docs-site/.bloop-template ]; then
+  STAMP=$(find "$PLUGIN/templates/docs-site" -type f -exec cksum {} + 2>/dev/null | sort | cksum | cut -d' ' -f1)
+  [ "$(cat .bloop/docs-site/.bloop-template)" = "$STAMP" ] || check docs preview info "The docs preview was built from an older template" "/bloop:docs --serve copies the new one and reinstalls"
+fi
+
+printf '[\n%s\n]\n' "$OUT"
+printf 'bloop doctor: %s ok · %s info · %s warn · %s fail\n' "$N_OK" "$N_INFO" "$N_WARN" "$N_FAIL" >&2
+[ "$N_FAIL" = 0 ]

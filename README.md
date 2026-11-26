@@ -78,6 +78,7 @@ A clone added with `./path/to/your/clone` loads in place. `git pull` there, then
 /bloop:docs          write the product docs in docs/product: what it is, what it can do, how to use and test it
 /bloop:docs --serve  preview those docs in a local Fumadocs site
 /bloop:report        how the work is going, with numbers. --proposal adds the decisions to make
+/bloop:doctor        what this project and machine need for the installed bloop: updates, tools, renamed config, missing sections
 ```
 
 `init` reads the repo before asking anything. If the repo already has something set up, it skips that part and reports what is left.
@@ -98,6 +99,7 @@ bin/status                       what the system can do right now: each requirem
 bin/docs                         fills the managed blocks of the product docs from bin/status, --check finds stale ones
 bin/docs-site                    prepares the Fumadocs preview behind /bloop:docs --serve
 bin/fuzz-due                     says whether fuzz-swarm should run now, by the triggers in fuzz.autoRun, and on what
+bin/doctor                       checks the plugin version, tools, config, ARCHITECTURE.md, .gitignore, issues and docs. Reads only
 bin/metrics                      DORA and our own numbers, read from the issue folders
 agents/comment-cleanser.md       hunts comments, and may only touch comments
 agents/reviewer-code.md          box 5 Review: correctness, simplicity, repo conventions
@@ -148,6 +150,7 @@ skills/board                     outside the boxes: rebuild the board, report wh
 skills/auto                      outside the boxes: run the skill bin/job names, state by state, stop where a person decides
 skills/docs                      outside the boxes: product docs as Fumadocs-ready MDX, and a preview
 skills/report                    outside the boxes: a status report or a proposal, every number from a script
+skills/doctor                    outside the boxes: run bin/doctor, report each finding with its fix, apply the safe ones on a yes
 templates/                       starting files the skills copy, including external/README.md
 docs/                            mermaid diagrams of each bin script
 drafts/                          decision records. Read before changing a skill
