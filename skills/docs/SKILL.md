@@ -75,6 +75,8 @@ Fumadocs reads the folder as it is: every page needs `title` and `description` i
 Fill every page you own from the sources in the table. Then:
 
 * **Links between pages** use the site path, `/docs/<page>`. When `docs.baseUrl` in `.bloop/config.json` is set, use that prefix instead. A relative link such as `./journeys` breaks on the index page
+* **Braces and angle brackets are code.** MDX reads `{name}` as JavaScript and `<name>` as a tag, so an API path such as `/resource/{doctype}`, a table name such as `tab_<doctype>`, or a regex goes in backticks, or the page fails to compile
+* **One language per page.** Requirement text in the managed blocks is copied as written. When `ARCHITECTURE.md` and the requirements are in another language, set `docs.language` to it and write the prose in that language too, rather than mixing two on one page
 * **Diagrams** are ` ```mermaid ` code blocks. Fumadocs renders them once the site has its Mermaid component, and the preview has it
 * **Run every command** in Getting started and Testing, and paste what it really printed where the page shows output
 
