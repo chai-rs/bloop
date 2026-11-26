@@ -4,7 +4,7 @@ STATUS: READY
 
 | slice | commit | check | result | evidence |
 | --- | --- | --- | --- | --- |
-| 1 | `<short sha>` | `<command that ran>` | `<what came back>` | `evidence/slice-1.txt` |
+| 1 | `<short sha>` | `<command that ran>` | `<what came back>` | `evidence/slice-1.md` |
 
 On a `ui` surface, every row also points at a screenshot, such as `evidence/slice-1.png`. Box 5 Review cannot review a screen from a diff.
 

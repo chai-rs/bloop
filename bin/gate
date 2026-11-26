@@ -7,7 +7,10 @@
 #
 #   bin/gate                      run static + unit + component
 #   bin/gate --e2e                also run the E2E smoke test
-#   bin/gate --evidence <path>    also write the raw output to that file
+#   bin/gate --evidence <path>    also write the run to that file. A path ending in .md
+#                                 gets a report: when it ran, a summary of the result,
+#                                 then the raw output in a code block. Any other path
+#                                 gets the raw output alone, as before
 #   bin/gate --dry-run            say what it would run and where, run nothing
 set -u
 
@@ -59,7 +62,58 @@ if [ "$DRY" = 1 ]; then
   exit 0
 fi
 
-if [ -n "$EVIDENCE" ]; then
+if [ -n "$EVIDENCE" ] && [ "${EVIDENCE%.md}" != "$EVIDENCE" ]; then
+  mkdir -p "$(dirname "$EVIDENCE")" || exit 1
+  RAW=$(mktemp); RC=$(mktemp)
+  START=$(date '+%s')
+  WHEN_LOCAL=$(date '+%Y-%m-%d %H:%M:%S %z')
+  WHEN_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  SHA=$(git rev-parse --short HEAD 2>/dev/null || echo 'none yet')
+  BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+  DIRTY=''; [ -n "$(git status --porcelain 2>/dev/null | head -1)" ] && DIRTY=', with uncommitted changes'
+
+  # a pipeline's exit code is tee's, not checks.sh's,
+  # so pass it out through a file. POSIX sh has no pipefail
+  { "$CHECKS" $E2E 2>&1; printf '%s' "$?" > "$RC"; } | tee "$RAW"
+  CODE=$(cat "$RC")
+  TOOK=$(( $(date '+%s') - START ))
+
+  if [ "$CODE" = 0 ]; then RESULT=PASS; else RESULT=FAIL; fi
+  CMD=$(printf '%s %s' "$CHECKS" "$E2E" | sed 's/ *$//')
+  # checks.sh marks each step with a line "==> <step>". The last one started is
+  # where a failing run stopped
+  STEPS=$(sed -n 's/^==> //p' "$RAW" | paste -sd, - | sed 's/,/, /g')
+  LAST=$(sed -n 's/^==> //p' "$RAW" | tail -1)
+  # A fence longer than any run of backticks in the output, so nothing breaks out of it
+  LONGEST=$(grep -o '``*' "$RAW" 2>/dev/null | awk '{ if (length > m) m = length } END { print m + 0 }')
+  FENCE=$(awk -v n="$LONGEST" 'BEGIN { if (n < 3) n = 2; for (i = 0; i <= n; i++) printf "`" }')
+
+  {
+    printf '# Evidence · %s · %s\n\n' "$(basename "$EVIDENCE" .md)" "$RESULT"
+    printf '| | |\n| --- | --- |\n'
+    printf '| Ran | %s (%s) |\n' "$WHEN_LOCAL" "$WHEN_UTC"
+    printf '| Command | `%s` |\n' "$CMD"
+    printf '| Commit | `%s` on `%s`%s |\n' "$SHA" "$BRANCH" "$DIRTY"
+    printf '| Took | %ss |\n' "$TOOK"
+    printf '| Exit code | %s |\n' "$CODE"
+    printf '| Result | **%s** |\n\n' "$RESULT"
+    printf '## Summary\n\n'
+    printf 'Ran `%s` at %s against `%s`%s. ' "$CMD" "$WHEN_LOCAL" "$SHA" "$DIRTY"
+    if [ "$CODE" = 0 ]; then
+      printf 'It passed, exit code 0 after %ss.' "$TOOK"
+      [ -n "$STEPS" ] && printf ' Steps run: %s.' "$STEPS"
+    else
+      printf 'It failed, exit code %s after %ss.' "$CODE" "$TOOK"
+      [ -n "$LAST" ] && printf ' It stopped during the step "%s". The end of the output shows why.' "$LAST"
+    fi
+    printf '\n\n## Output\n\nExactly what the gate printed, untouched.\n\n%stext\n' "$FENCE"
+    cat "$RAW"
+    # A last line without a newline would swallow the closing fence
+    [ -n "$(tail -c 1 "$RAW")" ] && printf '\n'
+    printf '%s\n' "$FENCE"
+  } > "$EVIDENCE"
+  rm -f "$RAW" "$RC"
+elif [ -n "$EVIDENCE" ]; then
   mkdir -p "$(dirname "$EVIDENCE")" || exit 1
   {
     printf '$ %s %s\n' "$CHECKS" "$E2E"

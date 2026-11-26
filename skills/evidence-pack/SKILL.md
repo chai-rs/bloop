@@ -21,8 +21,27 @@ If the evidence says "tested and it passed", the reviewer has to run it themselv
 
 ## Steps
 
-1. `bin/gate --evidence "$(bin/job --dir <id>)/evidence/slice-N.txt"` runs the gate and captures the raw output along with the command, the time, the commit and the exit code
-2. If this slice's check is not part of `checks.sh`, for example a request you fire by hand, run it and append to the same file, with a line naming the command
+1. `bin/gate --evidence "$(bin/job --dir <id>)/evidence/slice-N.md"` runs the gate and writes the report: a title with `PASS` or `FAIL`, a table of when it ran (local time and UTC), the command, the commit and branch, how long it took and the exit code, a summary of what happened, then the raw output in a code block
+2. If this slice's check is not part of `checks.sh`, for example a request you fire by hand, run it and add a section to the end of the same file, in the same shape:
+
+   ````markdown
+   ## Also ran · <what the check proves>
+
+   | | |
+   | --- | --- |
+   | Ran | <local time with offset> (<UTC>) |
+   | Command | `<the exact command>` |
+   | Exit code | <code> |
+   | Result | **PASS** or **FAIL** |
+
+   <one sentence: what came back, against what was expected>
+
+   ```text
+   <its output, exactly as printed>
+   ```
+   ````
+
+   Take the time from `date '+%Y-%m-%d %H:%M:%S %z'` when it runs, never from memory. When the output holds a line of three backticks, fence it with four
 3. Write the row into the `## Round N` table in `build.md`: `| slice | commit | check | result | evidence |`
 4. The `result` column holds what you actually saw, such as `201, 3/3 pass`, never just `passed`
 
@@ -38,9 +57,11 @@ The row in `build.md` points at the file, same as any other evidence.
 
 ## Never edit the raw file
 
-Files under `evidence/` are what the machine printed. **Never trim them, never tidy them, never drop an ugly line.** A warning in there is information.
+The code block in each evidence file is what the machine printed. **Never trim it, never tidy it, never drop an ugly line.** A warning in there is information. Never edit the table or summary `bin/gate` wrote either: they describe that run, and only that run.
 
-Summarising happens in the table in `build.md`. The raw file exists for the person who does not believe the table.
+A run that needs redoing gets a new run and a new file, such as `slice-3-rerun.md`, never an edited old one.
+
+The summary in each file says what one run did. The table in `build.md` says what the slices add up to. The code block exists for the person who believes neither.
 
 ## Acceptance criteria
 
