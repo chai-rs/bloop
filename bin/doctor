@@ -142,6 +142,20 @@ else
       check config trustLevel info "loop.trustLevel is $(cfg trustLevel), an old name. It still works, read as $( [ "$(cfg trustLevel)" = review-before-merge ] && echo supervised || echo trusted)" \
         "Rename it in .bloop/config.json, or let /bloop:guardrails rewrite the loop section" ;;
   esac
+  # Whether the evidence already meets the next level's bar. Doctor says so, and
+  # raises nothing: only a person changes trustLevel
+  LEVEL=$(cfg trustLevel)
+  case "$LEVEL" in ''|review-before-merge) NEXT=trusted ;; supervised) NEXT=trusted ;; trusted|merge-then-review) NEXT=autonomous ;; *) NEXT='' ;; esac
+  if [ -n "$NEXT" ] && git rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    TJ=$("$BIN/trust" --for "$NEXT" 2>/dev/null); TC=$?
+    WL=$(printf '%s' "$TJ" | sed -n 's/.*"window":{"days":\([0-9]*\),"landings":\([0-9]*\).*/\2 in \1 days/p')
+    if [ "$TC" = 0 ]; then
+      check config trustBar info "The evidence meets the bar for $NEXT: bin/trust --for $NEXT exits 0, window $WL" \
+        "A person may raise loop.trustLevel to $NEXT. bin/trust --for $NEXT shows the numbers"
+    else
+      check config trustBar ok "Not yet at the bar for $NEXT (window $WL). bin/trust --for $NEXT says why" ""
+    fi
+  fi
   printf '%s' "$FLAT" | grep -q '"autoBudget"' || check config autoBudget info "loop.autoBudget is not set, so /bloop:auto stops after 12 skill runs" "Add it with /bloop:guardrails when a backlog needs more"
   if printf '%s' "$FLAT" | grep -q '"fuzz"[[:space:]]*:[[:space:]]*{'; then
     printf '%s' "$FLAT" | grep -q '"autoRun"' || check config fuzzAutoRun info "fuzz has no autoRun, so fuzzing only runs when someone asks" "/bloop:guardrails, req 17"

@@ -67,7 +67,7 @@ An empty rollback section means nobody knows how to undo this. Say that to the u
 | --- | --- |
 | `RISK` is a level `deliver.autoMerge` allows | `intake.md`, and the config |
 | The gate passed **after** the sync | the `gate` field from step 1 |
-| `bin/trust` exits 0 | run it, and quote its numbers |
+| `bin/trust --for autonomous` exits 0 | run it, and quote its numbers |
 | Nothing in `## Context` touches a protected path | `spec.md`, against `.claude/settings.json` |
 | `loop.trustLevel` is `autonomous` | `.bloop/config.json`. Below it, every merge waits for a person. An old name counts as its new one, see `${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` |
 

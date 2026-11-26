@@ -4,10 +4,23 @@
 # Measures whether corrections are rare and steady, which is the only evidence
 # that justifies raising loop.trustLevel. Reads git history and writes nothing.
 #
-#   bin/trust              the last 30 days against the 30 before them
-#   bin/trust --days 14    a shorter window
+# Two windows sit back to back: the window, ending today, and the previous one
+# before it. Each counts only when it holds at least trustMinLandings landings.
+# Each level has its own bar:
+#   trusted     the window is under the revert ceiling. trusted never merges on
+#               its own, so a person still sees every change before main does
+#   autonomous  both windows are under the ceiling: rare and stable, because
+#               autonomous merges on its own
 #
-# JSON goes to stdout for a script. The sentence goes to stderr for a person.
+#   bin/trust                     the autonomous bar, the strict one
+#   bin/trust --for trusted       the trusted bar
+#   bin/trust --window 14 --previous 30
+#   bin/trust --days 14           both windows 14 days
+#   bin/trust --min 3             landings each window needs, this run only
+#
+# Window sizes and the minimum come from loop.trustWindowDays,
+# loop.trustPreviousDays and loop.trustMinLandings, 30, 30 and 5 by default.
+# JSON goes to stdout for a script. The sentences go to stderr for a person.
 set -u
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
@@ -15,17 +28,24 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 }
 cd "$ROOT" || exit 1
 
-DAYS=30
+whole() { case "$2" in ''|*[!0-9]*) printf 'bloop: %s takes a whole number\n' "$1" >&2; exit 64 ;; esac; }
+
+FOR=autonomous; WIN=''; PREVD=''; MIN=''
 while [ $# -gt 0 ]; do
   case "$1" in
-    --days) shift; DAYS=${1:-30} ;;
+    --for)      shift; FOR=${1:-} ;;
+    --days)     shift; whole --days "${1:-}"; WIN=$1; PREVD=$1 ;;
+    --window)   shift; whole --window "${1:-}"; WIN=$1 ;;
+    --previous) shift; whole --previous "${1:-}"; PREVD=$1 ;;
+    --min)      shift; whole --min "${1:-}"; MIN=$1 ;;
     -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
     *)  printf 'bloop: unexpected argument %s\n' "$1" >&2; exit 64 ;;
   esac
   shift
 done
-case "$DAYS" in
-  ''|*[!0-9]*) printf 'bloop: --days takes a whole number\n' >&2; exit 64 ;;
+case "$FOR" in
+  trusted|autonomous) ;;
+  *) printf 'bloop: --for takes trusted or autonomous\n' >&2; exit 64 ;;
 esac
 
 git rev-parse --verify --quiet HEAD >/dev/null 2>&1 || {
@@ -48,6 +68,9 @@ case "$TRUST" in
   merge-then-review)   TRUST=trusted ;;
 esac
 CEILING=$(num revertCeiling); [ -n "$CEILING" ] || CEILING=0.05
+[ -n "$WIN" ]   || WIN=$(num trustWindowDays);    [ -n "$WIN" ]   || WIN=30
+[ -n "$PREVD" ] || PREVD=$(num trustPreviousDays); [ -n "$PREVD" ] || PREVD=30
+[ -n "$MIN" ]   || MIN=$(num trustMinLandings);   [ -n "$MIN" ]   || MIN=5
 
 REF=origin/$MAIN
 git rev-parse --verify --quiet "$REF" >/dev/null 2>&1 || REF=$MAIN
@@ -61,51 +84,55 @@ count() {
   git log "$REF" --first-parent --since="$from" --until="$to" "$@" --format=%h 2>/dev/null | wc -l | tr -d ' '
 }
 
-NOW=$DAYS
-PREV=$((DAYS * 2))
-
-L1=$(count "$NOW days ago"  "now")
-R1=$(count "$NOW days ago"  "now"           --grep=^Revert)
-H1=$(count "$NOW days ago"  "now"           --grep=^hotfix)
-L2=$(count "$PREV days ago" "$NOW days ago")
-R2=$(count "$PREV days ago" "$NOW days ago" --grep=^Revert)
+BACK=$((WIN + PREVD))
+L1=$(count "$WIN days ago"  "now")
+R1=$(count "$WIN days ago"  "now"          --grep=^Revert)
+H1=$(count "$WIN days ago"  "now"          --grep=^hotfix)
+L2=$(count "$BACK days ago" "$WIN days ago")
+R2=$(count "$BACK days ago" "$WIN days ago" --grep=^Revert)
 
 rate() { awk -v r="$1" -v l="$2" 'BEGIN { if (l + 0 == 0) printf "null"; else printf "%.4f", r / l }'; }
-under() { awk -v r="$1" -v l="$2" -v c="$3" 'BEGIN { if (l + 0 == 0) { print "unknown"; exit } print (r / l <= c + 0) ? "below" : "above" }'; }
+# A window with fewer landings than the minimum says nothing either way.
+# The minimum is what stops a short window from passing on luck.
+verdict() { awk -v r="$1" -v l="$2" -v c="$3" -v m="$MIN" 'BEGIN {
+  if (l + 0 < m + 0) { print "unknown"; exit }
+  print (r / l <= c + 0) ? "below" : "above" }'; }
 
-RATE1=$(rate "$R1" "$L1")
-RATE2=$(rate "$R2" "$L2")
-V1=$(under "$R1" "$L1" "$CEILING")
-V2=$(under "$R2" "$L2" "$CEILING")
+RATE1=$(rate "$R1" "$L1");  V1=$(verdict "$R1" "$L1" "$CEILING")
+RATE2=$(rate "$R2" "$L2");  V2=$(verdict "$R2" "$L2" "$CEILING")
 
-if [ "$V1" = below ] && [ "$V2" = below ]; then
-  STABLE=true
-else
-  STABLE=false
-fi
+TRUSTED=false;    [ "$V1" = below ] && TRUSTED=true
+AUTONOMOUS=false; [ "$V1" = below ] && [ "$V2" = below ] && AUTONOMOUS=true
 
-printf '{"baseBranch":"%s","ref":"%s","trustLevel":"%s","ceiling":%s,' \
-  "$MAIN" "$REF" "$TRUST" "$CEILING"
+printf '{"baseBranch":"%s","ref":"%s","trustLevel":"%s","ceiling":%s,"minLandings":%s,' \
+  "$MAIN" "$REF" "$TRUST" "$CEILING" "$MIN"
 printf '"window":{"days":%s,"landings":%s,"reverts":%s,"hotfixes":%s,"revertRate":%s,"verdict":"%s"},' \
-  "$DAYS" "$L1" "$R1" "$H1" "$RATE1" "$V1"
+  "$WIN" "$L1" "$R1" "$H1" "$RATE1" "$V1"
 printf '"previous":{"days":%s,"landings":%s,"reverts":%s,"revertRate":%s,"verdict":"%s"},' \
-  "$DAYS" "$L2" "$R2" "$RATE2" "$V2"
-printf '"stable":%s}\n' "$STABLE"
+  "$PREVD" "$L2" "$R2" "$RATE2" "$V2"
+printf '"bars":{"trusted":%s,"autonomous":%s},"for":"%s","stable":%s}\n' \
+  "$TRUSTED" "$AUTONOMOUS" "$FOR" "$AUTONOMOUS"
 
+why() { # a window's verdict, said for a person
+  case "$1" in
+    below) printf 'under the ceiling' ;;
+    above) printf 'over the ceiling' ;;
+    *)     printf 'too few landings to count, %s needed' "$MIN" ;;
+  esac
+}
 {
-  printf 'last %s days on %s: %s landings, %s reverts, %s hotfixes\n' "$DAYS" "$REF" "$L1" "$R1" "$H1"
-  printf 'revert rate %s against a ceiling of %s, which is %s\n' "$RATE1" "$CEILING" "$V1"
-  printf 'the %s days before: %s landings, %s reverts, rate %s, %s\n' "$DAYS" "$L2" "$R2" "$RATE2" "$V2"
-  if [ "$STABLE" = true ]; then
-    printf 'both windows are under the ceiling, so the revert condition for raising trustLevel is met\n'
-  elif [ "$V1" = unknown ] || [ "$V2" = unknown ]; then
-    printf 'one window has no landings, so there is no trend yet and trustLevel stays where it is\n'
-  else
-    printf 'a window is over the ceiling, so trustLevel should not go up on this evidence\n'
-  fi
-  printf 'this is one condition of several, and only a human may change trustLevel\n'
+  printf 'window, the last %s days on %s: %s landings, %s reverts, %s hotfixes, rate %s, %s\n' \
+    "$WIN" "$REF" "$L1" "$R1" "$H1" "$RATE1" "$(why "$V1")"
+  printf 'previous, the %s days before: %s landings, %s reverts, rate %s, %s\n' \
+    "$PREVD" "$L2" "$R2" "$RATE2" "$(why "$V2")"
+  if [ "$TRUSTED" = true ]; then printf 'bar for trusted: met\n'
+  else printf 'bar for trusted: not met, the window is %s\n' "$(why "$V1")"; fi
+  if [ "$AUTONOMOUS" = true ]; then printf 'bar for autonomous: met, rare and stable\n'
+  elif [ "$V1" != below ]; then printf 'bar for autonomous: not met, the window is %s\n' "$(why "$V1")"
+  else printf 'bar for autonomous: not met, the previous window is %s\n' "$(why "$V2")"; fi
+  printf 'trustLevel is %s now. this is one condition of several, and only a human may change it\n' "$TRUST"
 } >&2
 
-# Exit code says whether the evidence supports more autonomy, so checks.sh and
-# CI can use it without reading the sentences above
-[ "$STABLE" = true ]
+# Exit code says whether the evidence meets the bar --for names, so checks.sh,
+# deliver and CI can use it without reading the sentences above
+if [ "$FOR" = trusted ]; then [ "$TRUSTED" = true ]; else [ "$AUTONOMOUS" = true ]; fi
