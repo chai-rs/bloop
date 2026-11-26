@@ -67,7 +67,7 @@ Repeat until every row in `## Slices` in `spec.md` is done.
 
    ```bash
    ISSUE_DIR=$("$CLAUDE_PLUGIN_ROOT/bin/job" --dir <id>)
-   "$CLAUDE_PLUGIN_ROOT/bin/gate" --evidence "$ISSUE_DIR/evidence/slice-N.txt"
+   "$CLAUDE_PLUGIN_ROOT/bin/gate" --evidence "$ISSUE_DIR/evidence/slice-N.md"
    ```
 5. **It fails**: fix what the error says and go back to 3. **No more than `loop.maxRounds` rounds**, which defaults to 3
 6. **It passes**: call `clean-comment` first, then commit, then call `evidence-pack` to record it
