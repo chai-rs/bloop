@@ -9,7 +9,7 @@ description: Sends one worker per attack angle at code that already merged, in p
 
 It is a **swarm**, not a loop: several workers run at once, each attacking the same target from a different angle, and the findings merge into one report. A worker that cannot prove its finding by running something has found nothing.
 
-It is the third rung of the trust ladder. At `loop.trustLevel` of `review-before-merge` it does one thing: **opens issues**. Nothing else.
+Below `loop.trustLevel` of `autonomous` it does one thing: **opens issues**. Nothing else.
 
 **Output** `.bloop/fuzz/<YYYY-MM-DD>-<target>.md`, plus one issue per finding
 
@@ -32,7 +32,13 @@ It is the third rung of the trust ladder. At `loop.trustLevel` of `review-before
   "dimensions": ["payload", "sequence", "concurrency", "resource", "ui"],
   "cases": 200,
   "maxFindings": 5,
-  "command": "go test ./... -run Fuzz"
+  "command": "go test ./... -run Fuzz",
+  "autoRun": {
+    "afterMerge": ["high"],
+    "afterAutoNext": false,
+    "everyMerges": 0,
+    "schedule": null
+  }
 }
 ```
 
@@ -46,6 +52,28 @@ It is the third rung of the trust ladder. At `loop.trustLevel` of `review-before
 | `command` | How this project runs a case, when it has its own harness | none, drive the code directly |
 
 Without a `fuzz` section, say so and ask before running with defaults. **A run nobody asked for burns time and can bury the backlog.**
+
+`autoRun` says when fuzzing starts without anyone asking. Each trigger is on or off by itself, and all are off by default.
+
+| key | Starts a run | Off |
+| --- | --- | --- |
+| `afterMerge` | after `deliver` merges an issue whose `RISK` is in the list, aimed at what that issue touched | `[]` |
+| `afterAutoNext` | at the end of a `/bloop:auto --next` run, aimed at what that run merged | `false` |
+| `everyMerges` | once this many issues have merged since the last run, aimed at all of them | `0` |
+| `schedule` | on a cron, such as `0 22 * * 5` for Friday nights, aimed at what merged since the last run | `null` |
+
+`bin/fuzz-due` decides whether a trigger fired and returns the targets. Nothing else decides it.
+
+## How a run starts
+
+| Started by | What you get | What to do |
+| --- | --- | --- |
+| A person | nothing | Choose the targets in step 1 |
+| `deliver`, `auto` or a schedule | the JSON of `bin/fuzz-due`, with `reasons` and `targets` | Say the reason in one line. Aim at `targets`, or choose them in step 1 when the list is empty |
+| `/bloop:fuzz-swarm --scheduled` | nothing | Run `"$CLAUDE_PLUGIN_ROOT/bin/fuzz-due" --scheduled`. Not due means nothing merged since the last run: say so in one line and stop |
+
+A run that started by itself still follows every rule here, `maxFindings` and `loop.concurrency` included.
+
 
 ## Step 1 · Choose the targets
 
@@ -112,9 +140,9 @@ The command is already a feedback loop that goes red, so `/bloop:debug <issue-id
 
 | `loop.trustLevel` | What changes |
 | --- | --- |
-| `review-before-merge` | Open issues. Nothing else. This is the default |
-| `merge-then-review` | Same. Fuzzing does not merge anything |
-| `autonomous` | May carry a finding through boxes 2 to 5 itself, one at a time. A human still confirms the merge, and anything that cannot be undone |
+| `supervised` | Open issues. Nothing else. This is the default |
+| `trusted` | Same. Fuzzing does not move work through the boxes |
+| `autonomous` | Hands each issue it opened to `/bloop:auto`, one at a time, so it goes through boxes 2 to 6 at that level. Merges follow `deliver`'s conditions, and anything that cannot be undone still waits for a person |
 
 **Even at `autonomous` it never skips a box.** The levels change who waits for whom, never which gates run.
 

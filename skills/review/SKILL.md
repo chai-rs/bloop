@@ -14,7 +14,7 @@ Box 5 Review. You are the driver. **You do not review anything yourself.** You o
 1. **Never review yourself.** If you form an opinion about the code, it belongs to a lens, not to you
 2. **Never edit code.** Changes go back to box 4 Build as a new round
 3. **Never set `APPROVED-BY`.** That line is a human signature
-4. **Never mark a PR ready without asking.** That goes outside this machine
+4. **Never mark a PR ready without asking.** That goes outside this machine. **At `trusted` or `autonomous`, `/bloop:auto` may answer this for the person.** `${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` says when, and how the answer is recorded. Nobody else may
 5. **Issue files live in the main checkout only.** Find the folder with `"$CLAUDE_PLUGIN_ROOT/bin/job" --dir <issue-id>`, which prints an absolute path, and write there even while you work in a worktree. A file written into the worktree's own `.bloop/` is invisible to `bin/job`, the board and `/bloop:auto`. Give every lens and the approver that absolute path in its brief
 6. **Report format**: read `${CLAUDE_PLUGIN_ROOT}/references/report-style.md` before your first report
 7. **Language**: talk to the user in the language the user writes in. Everything written to disk is English

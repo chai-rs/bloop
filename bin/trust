@@ -41,7 +41,12 @@ val()  { printf '%s' "$LOOP" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
 num()  { printf '%s' "$LOOP" | sed -n "s/.*\"$1\":\([0-9.]*\).*/\1/p"; }
 
 MAIN=$(val baseBranch);     [ -n "$MAIN" ]    || MAIN=main
-TRUST=$(val trustLevel);    [ -n "$TRUST" ]   || TRUST=review-before-merge
+TRUST=$(val trustLevel);    [ -n "$TRUST" ]   || TRUST=supervised
+# The levels were renamed. Report an old name as the level it now means
+case "$TRUST" in
+  review-before-merge) TRUST=supervised ;;
+  merge-then-review)   TRUST=trusted ;;
+esac
 CEILING=$(num revertCeiling); [ -n "$CEILING" ] || CEILING=0.05
 
 REF=origin/$MAIN

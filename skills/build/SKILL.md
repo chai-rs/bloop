@@ -16,7 +16,7 @@ Box 4 Build. You are the driver. You loop over slices until there are none left.
 3. **One slice, one commit.** The commit message names the slice and the check
 4. **Before writing code, read `${CLAUDE_PLUGIN_ROOT}/references/code-rules.md` in full.** That is the whole standard
 5. **Read `companions.build` in `.bloop/config.json`.** Each row names a skill, when it applies and why. They are extra depth on top of `code-rules.md`, used before or after you write a slice, **never in place of it**. A skill the session does not have gets reported and skipped, and never blocks
-6. **Never push or open a PR without asking.** Those go outside this machine. The user confirms first
+6. **Never push or open a PR without asking.** Those go outside this machine. The user confirms first. **At `trusted` or `autonomous`, `/bloop:auto` may answer this for the person.** `${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` says when, and how the answer is recorded. Nobody else may
 7. **Report format**: read `${CLAUDE_PLUGIN_ROOT}/references/report-style.md` before your first report
 8. **Language**: talk to the user in the language the user writes in. Everything written to disk, including commit messages, is English
 

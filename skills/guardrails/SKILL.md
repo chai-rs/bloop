@@ -144,7 +144,13 @@ Optional, and off unless the project asks for it. `fuzz-swarm` runs against code
   "dimensions": ["payload", "sequence", "concurrency", "resource", "ui"],
   "cases": 200,
   "maxFindings": 5,
-  "command": "go test ./... -run Fuzz"
+  "command": "go test ./... -run Fuzz",
+  "autoRun": {
+    "afterMerge": ["high"],
+    "afterAutoNext": false,
+    "everyMerges": 0,
+    "schedule": null
+  }
 }
 ```
 
@@ -155,6 +161,17 @@ Ask three things and leave the rest at their defaults: **what to aim at**, **wha
 `maxFindings` exists so one broken function cannot fill the backlog. Say that when you set it.
 
 **Without this section `fuzz-swarm` asks before running.** That is deliberate: an unrequested run costs time and can bury the backlog.
+
+Then ask a fourth: **when may it run without being asked?** Each trigger is its own setting, so offer them as checkboxes.
+
+| On | Trigger | What it costs |
+| --- | --- | --- |
+| ✓ | `afterMerge: ["high"]` after a high-risk merge | One run per risky merge, aimed at what it touched. The cheapest useful default |
+| ✗ | `afterAutoNext` at the end of `/bloop:auto --next` | One run per backlog run. Fits a project that clears its backlog with `--next` |
+| ✗ | `everyMerges: <n>` after n merges | Runs grow with the team's pace, not the calendar |
+| ✗ | `schedule: "<cron>"` | A fixed cost every week, whether or not anything merged. A run with nothing new stops at once |
+
+A `schedule` needs something to wake it. Register `/bloop:fuzz-swarm --scheduled` on that cron with the session's scheduler: a local scheduled task when the session has one, so it runs where the issue files live. Otherwise show the user the command to register it, and say the trigger does nothing until they do.
 
 ### req 18 · delivery
 
@@ -195,7 +212,7 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
   "maxRounds": 3,
   "baseBranch": "main",
   "concurrency": 2,
-  "trustLevel": "review-before-merge",
+  "trustLevel": "supervised",
   "revertCeiling": 0.05,
   "autoBudget": 12
 }
@@ -206,7 +223,7 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
 | `maxRounds` | How many times box 4 Build may correct, and how many review rounds box 5 Review allows, before a human has to look | 3 |
 | `baseBranch` | What `bin/work` cuts a branch from | `main` |
 | `concurrency` | How many agents run at once, in box 5 Review's lenses and in `fuzz-swarm` | 2 |
-| `trustLevel` | How far the loop may go without a human. See below | `review-before-merge` |
+| `trustLevel` | How far the loop may go without a human. See below | `supervised` |
 | `revertCeiling` | The share of landings that may be reverts before `bin/trust` says no | `0.05` |
 | `autoBudget` | How many skill runs one `/bloop:auto` call may make, across every issue it takes, before it stops and reports | 12 |
 
@@ -216,9 +233,11 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
 
 | Level | What it allows |
 | --- | --- |
-| `review-before-merge` | The default. Everything goes through box 5 Review before it merges |
-| `merge-then-review` | The agent may merge, and main gets reviewed afterwards |
-| `autonomous` | `fuzz-swarm` may run the whole loop itself. A human still confirms anything that cannot be undone |
+| `supervised` | The default. Every question waits for a person, the merge included |
+| `trusted` | `/bloop:auto` answers the routine questions itself, such as confirming a restate or pushing. The merge still waits for a person |
+| `autonomous` | As `trusted`, and a merge happens on its own when every condition in `deliver` holds. `RISK: high` never does |
+
+`${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` lists exactly which questions each level answers, which none ever does, and how each answer is recorded. Older configs say `review-before-merge`, `merge-then-review` or `autonomous`. Read them as `supervised`, `trusted` and `autonomous`, and write the new name the next time this section is rewritten.
 
 **Only a human moves this up.** An agent may never raise it, the same rule as `CONFIRMED` and `APPROVED-BY`.
 

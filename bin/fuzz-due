@@ -1,0 +1,95 @@
+#!/bin/sh
+# bloop · bin/fuzz-due
+#
+# Says whether fuzz-swarm should run now, by the triggers in fuzz.autoRun, and
+# what to aim it at. Decides only. Runs nothing, writes nothing.
+#
+#   bin/fuzz-due --merged <issue-id>    deliver just merged this issue
+#   bin/fuzz-due --run <id>[,<id>...]   /bloop:auto --next finished, these are what it merged
+#   bin/fuzz-due --scheduled            a scheduled run: due when anything merged since the last one
+#   bin/fuzz-due                        the merge count only
+#
+# JSON to stdout: due, the reasons that made it due, the target paths, the date of
+# the last fuzz run, and how many issues merged since it.
+set -u
+
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+MODE=count; IDS=''
+case "${1:-}" in
+  --merged)    MODE=merged; IDS=${2:-} ;;
+  --run)       MODE=run; IDS=$(printf '%s' "${2:-}" | tr ',' ' ') ;;
+  --scheduled) MODE=scheduled ;;
+  '') ;;
+  *) printf 'usage: bin/fuzz-due [--merged <id> | --run <id,...> | --scheduled]\n' >&2; exit 64 ;;
+esac
+[ "$MODE" = merged ] && [ -z "$IDS" ] && { printf 'bloop: --merged needs an issue id\n' >&2; exit 64; }
+
+CONFIG=.bloop/config.json
+FLAT=$(tr -d ' \n' < "$CONFIG" 2>/dev/null)
+JOB="$(dirname "$0")/job"
+
+say() { printf '{"due":%s,"reasons":[%s],"targets":[%s],"lastRun":%s,"mergedSince":%s}\n' "$1" "$2" "$3" "$4" "$5"; }
+
+# No fuzz section means nobody asked for fuzzing, so nothing is ever due
+printf '%s' "$FLAT" | grep -q '"fuzz":{' || { say false '"no fuzz section in .bloop/config.json"' '' null 0; exit 0; }
+
+AUTO=$(printf '%s' "$FLAT" | sed -n 's/.*"autoRun":{\([^}]*\)}.*/\1/p')
+AFTER_MERGE=$(printf '%s' "$AUTO" | sed -n 's/.*"afterMerge":\[\([^]]*\)\].*/\1/p' | tr -d '"' | tr ',' ' ')
+AFTER_NEXT=false
+printf '%s' "$AUTO" | grep -q '"afterAutoNext":true' && AFTER_NEXT=true
+EVERY=$(printf '%s' "$AUTO" | sed -n 's/.*"everyMerges":\([0-9]*\).*/\1/p'); [ -n "$EVERY" ] || EVERY=0
+
+header() { sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -1; }
+
+# The last fuzz run is the newest report in .bloop/fuzz/, named by its date
+LAST=$(ls .bloop/fuzz/*.md 2>/dev/null | sed -n 's#.*/\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)-.*#\1#p' | sort | tail -1)
+
+# Issues merged after that day. Same-day merges count for the next run, not this one
+SINCE=''
+for d in $("$JOB" --all 2>/dev/null | sed -n 's/^      "id": "\(.*\)",$/\1/p'); do
+  dir=$("$JOB" --dir "$d" 2>/dev/null) || continue
+  m=$(header "$dir/deliver.md" MERGED-AT)
+  case "$m" in [0-9][0-9][0-9][0-9]-*) ;; *) continue ;; esac
+  if [ -z "$LAST" ] || [ "$(printf '%s\n%s\n' "$m" "$LAST" | sort | tail -1)" = "$m" ] && [ "$m" != "$LAST" ]; then
+    SINCE="$SINCE $d"
+  fi
+done
+NSINCE=$(printf '%s' "$SINCE" | wc -w | tr -d ' ')
+
+REASONS=''; AIM=''
+add() { REASONS="$REASONS${REASONS:+,}\"$1\""; }
+
+case "$MODE" in
+  merged)
+    dir=$("$JOB" --dir "$IDS" 2>/dev/null) || { printf 'bloop: no issue named %s\n' "$IDS" >&2; exit 1; }
+    risk=$(header "$dir/intake.md" RISK)
+    for r in $AFTER_MERGE; do
+      [ "$r" = "$risk" ] && add "RISK $risk is in fuzz.autoRun.afterMerge" && AIM=$IDS
+    done ;;
+  run)
+    if [ "$AFTER_NEXT" = true ] && [ -n "$IDS" ]; then
+      add "fuzz.autoRun.afterAutoNext is on and the run merged $(printf '%s' "$IDS" | wc -w | tr -d ' ') issues"
+      AIM=$IDS
+    fi ;;
+  scheduled)
+    if [ "$NSINCE" -gt 0 ]; then add "scheduled, and $NSINCE issues merged since ${LAST:-the start}"; AIM=$SINCE; fi ;;
+esac
+
+if [ "$EVERY" -gt 0 ] && [ "$NSINCE" -ge "$EVERY" ]; then
+  add "$NSINCE issues merged since ${LAST:-the start}, and fuzz.autoRun.everyMerges is $EVERY"
+  AIM="$AIM $SINCE"
+fi
+
+# Targets: the real paths each issue's plan named in ## Context
+TARGETS=$(for id in $AIM; do
+  dir=$("$JOB" --dir "$id" 2>/dev/null) || continue
+  sed -n '/^## Context/,/^## /p' "$dir/spec.md" 2>/dev/null | grep -o '`[^`]*`' | tr -d '`' \
+    | grep -E '/|\.[a-z]+$' | while read -r f; do [ -e "$f" ] && printf '%s\n' "$f"; done
+done | sort -u | sed 's/.*/"&"/' | paste -sd, -)
+
+DUE=false; [ -n "$REASONS" ] && DUE=true
+if [ -n "$LAST" ]; then L="\"$LAST\""; else L=null; fi
+say "$DUE" "$REASONS" "$TARGETS" "$L" "$NSINCE"

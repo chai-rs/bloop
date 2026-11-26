@@ -13,7 +13,7 @@ Box 3 Planning. You are the driver. **You do not write the content yourself.** Y
 
 1. **You may write only the `APPROVED:` line.** Every other part of `spec.md` has an owner, see the table below
 2. **Never skip a step silently.** If a step does not apply, say why it does not
-3. **Never approve a plan you wrote.** If `RISK` is anything but `low`, a human approves
+3. **Never approve a plan you wrote.** If `RISK` is anything but `low`, a human approves. **At `trusted` or `autonomous`, `/bloop:auto` may answer this for the person.** `${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` says when, and how the answer is recorded. Nobody else may: then write `APPROVED: yes` with `APPROVED-BY: trustLevel <level>` under it. A starred product decision still waits for a person at every level
 4. **Report format**: read `${CLAUDE_PLUGIN_ROOT}/references/report-style.md` before your first report
 5. **Language**: talk to the user in the language the user writes in. Everything written to disk is English
 

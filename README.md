@@ -97,6 +97,7 @@ bin/archive                      moves a closed issue into .bloop/archive/, in a
 bin/status                       what the system can do right now: each requirement and journey, live or not
 bin/docs                         fills the managed blocks of the product docs from bin/status, --check finds stale ones
 bin/docs-site                    prepares the Fumadocs preview behind /bloop:docs --serve
+bin/fuzz-due                     says whether fuzz-swarm should run now, by the triggers in fuzz.autoRun, and on what
 bin/metrics                      DORA and our own numbers, read from the issue folders
 agents/comment-cleanser.md       hunts comments, and may only touch comments
 agents/reviewer-code.md          box 5 Review: correctness, simplicity, repo conventions
@@ -106,6 +107,7 @@ agents/reviewer-ui.md            box 5 Review: what is on the screen
 agents/approver.md               box 5 Review: decides APPROVE or ESCALATE
 hooks/hooks.json                 SessionStart tells the agent where this repo stands · the other hooks keep the board fresh
 references/report-style.md       the shape of reports and menus, shared by every skill
+references/trust-levels.md       what supervised, trusted and autonomous each let /bloop:auto answer, and what none ever does
 references/diagram-rules.md      when to draw mermaid in an issue file, and when not to
 references/code-rules.md         how to write code: the smallest change that is still complete
 references/comment-rules.md      which comments live and which die

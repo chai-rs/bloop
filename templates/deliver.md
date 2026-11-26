@@ -20,14 +20,15 @@ One row per step, in order. A step that was skipped says why, because a blank ro
 
 ## Why this merged without asking
 
-Only when it did. Name the four things that made it allowed, or the line is not an answer.
+Only when it did. Name the five things that made it allowed, or the line is not an answer.
 
 - `RISK: low` from `intake.md`, and `deliver.autoMerge.low` is true
 - the gate passed after the sync, not before it
 - `bin/trust` exits 0
 - nothing in `## Context` touches a protected path
+- `loop.trustLevel` is `autonomous`
 
-Anything less than all four means a person merges it.
+Anything less than all five means a person merges it.
 
 ## Watch after deploy
 
