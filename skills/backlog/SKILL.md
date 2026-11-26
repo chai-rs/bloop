@@ -13,7 +13,7 @@ Box 2 Issue/Story/Task. You are the one who gives work a folder to live in.
 
 ## Standing rules
 
-1. **Never write `ARCHITECTURE.md`.** That file belongs to `init` in box 1 Architecting. To add an FR, hand it over, do not write it yourself
+1. **Never write `ARCHITECTURE.md`, or the requirements file it links to.** Both belong to `init` in box 1 Architecting. To add an FR, change the scope or join a journey, hand it over, do not write it yourself
 2. **Never write `intake.md` or `restate.md`.** Those belong to `restate`
 3. **Never call `restate` yourself.** Opening five issues and confirming them in a row is how people click yes without reading
 4. **Report format**: read `${CLAUDE_PLUGIN_ROOT}/references/report-style.md` before your first report
@@ -29,7 +29,7 @@ Box 2 Issue/Story/Task. You are the one who gives work a folder to live in.
 | What you find | What to do |
 | --- | --- |
 | No `ARCHITECTURE.md` | Box 1 Architecting is unfinished. Say to run `/bloop:init` first, then stop |
-| `ARCHITECTURE.md` exists but has no `## Functional requirements`, or only placeholders | Say there are no FRs to work from. With an intent, go to mode B. Without one, send them back to `/bloop:init` |
+| `ARCHITECTURE.md` exists but `bin/status` finds no requirements | Say there are no FRs to work from. With an intent, go to mode B. Without one, send them back to `/bloop:init` |
 | `job` exits with code 2 | The provider is not local. Say so plainly and stop |
 
 ## Pick the mode on the first line
@@ -45,9 +45,13 @@ Did the user type anything after the command?
 
 ### A1 · Read the FRs and see which are taken
 
-Pull every line starting with `- FR-` from `## Functional requirements`.
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/status"
+```
 
-Then grep for `FR:` lines in every file under `.bloop/issues/` and match by **exact string**. `FR-3` matches `FR-3` and nothing else.
+Its `frs` list is every requirement, wherever the project keeps them: a list or a table under `## Functional requirement(s)` in `ARCHITECTURE.md`, or a file that section links to. **Never read them out of `ARCHITECTURE.md` yourself.** A project that keeps 180 requirements in a linked table shows only its group names there.
+
+Each requirement carries `issues`, the issues whose `FR:` line names it, matched by **exact string**: `FR-3` matches `FR-3` and nothing else. One with `status: unpicked` has no issue yet.
 
 Never match by meaning. If an agent starts deciding that two sentences probably mean the same thing, the coverage answer stops being the same between sessions and becomes untrustworthy.
 
@@ -66,6 +70,8 @@ That last option matters. If the user types something new there, flow straight i
 
 If every FR is taken, say so plainly and ask whether they want to add something new.
 
+With more than 15 unpicked, show the recommended ones, then one line per `group` saying how many more sit in it. A table of 180 rows is not a recommendation.
+
 ### A3 · How to recommend
 
 In this order.
@@ -82,6 +88,21 @@ An FR that was once rejected still appears in the list, with the old reason, bec
 ---
 
 ## Mode B · There is an intent
+
+### B0 · Check the scope
+
+Read `## Scope` in `ARCHITECTURE.md`, both sides, in whatever language it is written: "v1 does not", "v1 ไม่ทำ" and the like are all the "does not" side. When the intent is something that side names, **stop and ask before anything else**. Quote the line it matches, word for word.
+
+**Question · This is outside v1's scope**
+
+| # | Option | Why |
+| --- | --- | --- |
+| 1 | **Keep it out** ← recommended | The line was written on purpose when the scope was agreed. Nothing is opened, and the report says so |
+| 2 | Move it into scope | `init` takes the line out of "does not" and adds what v1 now does to "does". Then the request carries on as a new capability, through B2 and B3 |
+
+Recommend keeping it out unless the user has said why the scope changed. Never move a line yourself, and never open an issue for work the scope excludes. Opening it anyway is how a scope grows with nobody deciding.
+
+The match is a judgement, so show the line you matched and let the user say it is not the same thing. When nothing on the "does not" side is close, say nothing and go to B1.
 
 ### B1 · Classify first
 
@@ -107,9 +128,18 @@ You get back a block of conclusions, with the assumptions nobody confirmed liste
 
 Only for a genuinely new capability. Skip this when `FR: none` or when it matched an existing FR.
 
-Propose the FR text to add, with the next number. **Get human approval first**, because an FR is the origin of every piece of work that follows. If FRs can be added silently, the architecture grows with nobody reviewing it.
+Propose all of it in one message, and **get human approval first**, because an FR is the origin of every piece of work that follows. If FRs can be added silently, the architecture grows with nobody reviewing it.
 
-Once approved, call `init` and let it write into `ARCHITECTURE.md`. Tell it what to add and where.
+| Part | What to propose |
+| --- | --- |
+| Id | The next one in the project's own style, from the ids `bin/status` lists. `FR-12` after `FR-11`. With grouped ids such as `FR-TEN-7`, the next number in the group whose `group` heading fits, `FR-TEN-8`. A capability no group fits needs a new group code: propose one and say why |
+| Where | Where the project keeps its FRs: the list in `ARCHITECTURE.md`, or a row under that group's heading in the file it links to, with the same columns, such as a milestone |
+| Text | One sentence: what the system must be able to do |
+| Journey | Which row of `## Journeys` gains this id in its FRs column, or a new journey when no existing one is the path a person takes to use it. Every FR sits in at least one journey, or the docs cannot say what a person can do with it. Without a `## Journeys` section, propose starting one |
+| Goal | Which row of `## Goals` it moves, by its `G<n>` id, or `none`. An FR that moves no goal is worth one question: is it needed now? |
+| Scope | The line B0 moved into scope, if it did |
+
+Once approved, call `init` and let it write each part where it belongs: the FR, the journey change and the scope change. Tell it exactly what to add and where. The goal goes into `issue.md`, below.
 
 If the intent also needs a new endpoint or event, say that `/bloop:contract` has to run too, but **do not run it**. Deciding what the contract change is belongs to box 3 Planning.
 
@@ -119,7 +149,9 @@ If the intent also needs a new endpoint or event, say that `/bloop:contract` has
 
 For each piece of work being opened, create `.bloop/issues/<YYYY-MM-DD>-<slug>/issue.md` from `templates/issue.md`.
 
-Set `KIND` on its second line:
+Set `KIND` on its second line, and `GOAL` on its third: the `G<n>` the FR moves, or `none`, as approved in B3. Work with `FR: none` gets `GOAL: none`.
+
+Set `KIND` this way:
 
 | `KIND` | When |
 | --- | --- |
