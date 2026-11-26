@@ -1,0 +1,170 @@
+#!/bin/sh
+# bloop · bin/rule-check
+#
+# Proves a project rule bites: its bad example must fail the rule's check and its
+# good example must pass it, through the same tool checks.sh runs. A rule that has
+# never been seen red is not counted as working.
+#
+#   bin/rule-check <rule-id>   prove one rule, write proof.md, update STATUS and PROVEN-AT
+#   bin/rule-check --all       prove every rule a machine checks
+#   bin/rule-check --list      JSON: every rule, its tool and its status. Runs nothing
+#   bin/rule-check --agents    rewrite the rules block in AGENTS.md from the rule files
+#
+# A rule lives in .bloop/rules/<id>/rule.md. Its header lines:
+#   RULE:        the rule, one sentence
+#   ENFORCED-BY: the tool, such as depguard, forbidigo, eslint, biome, ruff, ast-grep,
+#                or agents-md for a rule no machine checks
+#   WHERE:       the file that holds the rule's config
+#   CHECK:       the command that applies the rule to one example. {path} is the
+#                example file, {dir} its folder, both relative to the repo root
+#   BAD:  GOOD:  the example files, relative to the rule's folder
+#   STATUS:      proven, unproven or text-only. Written by this script
+#   PROVEN-AT:   when the last proof passed. Written by this script
+set -u
+
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+RULES=.bloop/rules
+
+header() { sed -n "s/^$2:[[:space:]]*//p" "$1" 2>/dev/null | head -1; }
+setheader() { # file key value: replace the line, or add it after the last header line
+  if grep -q "^$2:" "$1"; then
+    awk -v k="$2" -v v="$3" 'index($0, k ":") == 1 { print k ": " v; next } { print }' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+  else
+    awk -v k="$2" -v v="$3" 'done == 0 && $0 == "" { print k ": " v; done = 1 } { print } END { if (!done) print k ": " v }' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+  fi
+}
+clean() { printf '%s' "$1" | tr '"\\' "'/"; }
+fence() { awk -v n="$(grep -o '``*' "$1" 2>/dev/null | awk '{ if (length > m) m = length } END { print m + 0 }')" \
+  'BEGIN { if (n < 3) n = 2; for (i = 0; i <= n; i++) printf "`" }'; }
+
+ids() { for d in "$RULES"/*/; do [ -f "$d/rule.md" ] && basename "$d"; done; }
+
+# CHECK with {path} and {dir} filled in for one example
+resolve() { # rule-dir example-file
+  path="$1/$2"; dir=$(dirname "$path")
+  header "$1/rule.md" CHECK | sed "s#{path}#$path#g; s#{dir}#$dir#g"
+}
+# Run CHECK against one example. Prints the exit code, leaves the output in $3
+run_on() { # rule-dir example-file out-file
+  sh -c "$(resolve "$1" "$2")" > "$3" 2>&1
+  printf '%s' "$?"
+}
+
+prove() {
+  id=$1; d="$RULES/$id"; f="$d/rule.md"
+  [ -f "$f" ] || { printf 'bloop: no rule %s in %s\n' "$id" "$RULES" >&2; return 2; }
+  by=$(header "$f" ENFORCED-BY)
+  if [ "$by" = agents-md ]; then
+    setheader "$f" STATUS text-only
+    printf 'bloop: %s is text only, a person checks it in review\n' "$id" >&2
+    return 0
+  fi
+  bad=$(header "$f" BAD); good=$(header "$f" GOOD); cmd=$(header "$f" CHECK)
+  for need in "BAD:$bad" "GOOD:$good" "CHECK:$cmd"; do
+    [ -n "${need#*:}" ] || { printf 'bloop: %s has no %s line\n' "$id" "${need%%:*}" >&2; setheader "$f" STATUS unproven; return 1; }
+  done
+  for e in "$bad" "$good"; do
+    [ -f "$d/$e" ] || { printf 'bloop: %s names %s, which does not exist\n' "$id" "$d/$e" >&2; setheader "$f" STATUS unproven; return 1; }
+  done
+
+  WHEN_LOCAL=$(date '+%Y-%m-%d %H:%M:%S %z'); WHEN_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  SHA=$(git rev-parse --short HEAD 2>/dev/null || echo 'none yet')
+  B=$(mktemp); G=$(mktemp)
+  BC=$(run_on "$d" "$bad" "$B")
+  GC=$(run_on "$d" "$good" "$G")
+
+  if [ "$BC" != 0 ] && [ "$GC" = 0 ]; then
+    RESULT=PROVEN; WHY="The bad example failed the check, exit code $BC, and the good example passed it, exit code 0."
+  elif [ "$BC" = 0 ]; then
+    RESULT=UNPROVEN; WHY="The bad example passed the check, exit code 0. The rule does not catch what it is meant to catch."
+  else
+    RESULT=UNPROVEN; WHY="The good example failed the check too, exit code $GC. The rule, or the check command, flags correct code."
+  fi
+  # 127 and 126 mean the command itself did not run, not that the rule bit
+  case "$BC$GC" in *127*|*126*) RESULT=UNPROVEN; WHY="The check command could not run, exit code $BC then $GC. Is the tool installed?" ;; esac
+
+  {
+    printf '# Proof · %s · %s\n\n' "$id" "$RESULT"
+    printf '| | |\n| --- | --- |\n'
+    printf '| Ran | %s (%s) |\n' "$WHEN_LOCAL" "$WHEN_UTC"
+    printf '| Rule | %s |\n' "$(header "$f" RULE)"
+    printf '| Enforced by | %s, in `%s` |\n' "$by" "$(header "$f" WHERE)"
+    printf '| Check | `%s` |\n' "$cmd"
+    printf '| Commit | `%s` |\n' "$SHA"
+    printf '| Bad example | `%s`, exit code %s, expected non-zero |\n' "$bad" "$BC"
+    printf '| Good example | `%s`, exit code %s, expected 0 |\n' "$good" "$GC"
+    printf '| Result | **%s** |\n\n' "$RESULT"
+    printf '## Summary\n\nRan the check for %s at %s against `%s`. %s\n\n' "$id" "$WHEN_LOCAL" "$SHA" "$WHY"
+    FB=$(fence "$B"); printf '## Bad example: what the check printed\n\n`%s`\n\n%stext\n' "$(resolve "$d" "$bad")" "$FB"; cat "$B"
+    [ -n "$(tail -c 1 "$B")" ] && printf '\n'; printf '%s\n\n' "$FB"
+    FG=$(fence "$G"); printf '## Good example: what the check printed\n\n`%s`\n\n%stext\n' "$(resolve "$d" "$good")" "$FG"; cat "$G"
+    [ -n "$(tail -c 1 "$G")" ] && printf '\n'; printf '%s\n' "$FG"
+  } > "$d/proof.md"
+  rm -f "$B" "$G"
+
+  if [ "$RESULT" = PROVEN ]; then
+    setheader "$f" STATUS proven; setheader "$f" PROVEN-AT "$WHEN_LOCAL"
+    printf 'bloop: %s proven. bad exit %s, good exit 0\n' "$id" "$BC" >&2
+    return 0
+  fi
+  setheader "$f" STATUS unproven
+  printf 'bloop: %s NOT proven. %s See %s/proof.md\n' "$id" "$WHY" "$d" >&2
+  return 1
+}
+
+list() {
+  printf '['; sep=''
+  for id in $(ids); do
+    f="$RULES/$id/rule.md"
+    printf '%s\n  {"id":"%s","rule":"%s","enforcedBy":"%s","where":"%s","status":"%s","provenAt":"%s"}' "$sep" "$id" \
+      "$(clean "$(header "$f" RULE)")" "$(header "$f" ENFORCED-BY)" "$(clean "$(header "$f" WHERE)")" \
+      "$(header "$f" STATUS)" "$(header "$f" PROVEN-AT)"
+    sep=','
+  done
+  printf '\n]\n'
+}
+
+# The rules block of AGENTS.md, rebuilt from the rule files, so an agent reads
+# every rule, including the ones a machine already enforces
+agents() {
+  [ -f AGENTS.md ] || { printf 'bloop: no AGENTS.md yet, /bloop:guardrails writes it\n' >&2; return 1; }
+  BLOCK=$(mktemp)
+  {
+    printf '<!-- bloop:managed rules -->\n## Project rules\n\n'
+    printf 'Added with /bloop:rule. Each line says what enforces it. "A person checks it" means no machine does, so follow it without being caught.\n\n'
+    n=0
+    for id in $(ids); do
+      f="$RULES/$id/rule.md"; by=$(header "$f" ENFORCED-BY); st=$(header "$f" STATUS)
+      if [ "$by" = agents-md ]; then how='A person checks it in review'
+      else how="Enforced by $by in \`$(header "$f" WHERE)\`"; [ "$st" = proven ] || how="$how, not yet proven to work"; fi
+      printf -- '- **%s** %s. %s\n' "$id" "$(header "$f" RULE)" "$how"
+      n=$((n + 1))
+    done
+    [ "$n" = 0 ] && printf -- '- None yet\n'
+    printf '<!-- bloop:end rules -->\n'
+  } > "$BLOCK"
+  if grep -q '^<!-- bloop:managed rules -->$' AGENTS.md; then
+    awk -v b="$BLOCK" '
+      $0 == "<!-- bloop:managed rules -->" { while ((getline l < b) > 0) print l; skip = 1; next }
+      $0 == "<!-- bloop:end rules -->" { skip = 0; next }
+      !skip { print }' AGENTS.md > AGENTS.md.tmp && mv AGENTS.md.tmp AGENTS.md
+  else
+    { printf '\n'; cat "$BLOCK"; } >> AGENTS.md
+  fi
+  rm -f "$BLOCK"
+  printf 'bloop: AGENTS.md lists %s rules\n' "$(ids | wc -l | tr -d ' ')" >&2
+}
+
+case "${1:-}" in
+  --list)   list ;;
+  --agents) agents ;;
+  --all)
+    rc=0
+    for id in $(ids); do prove "$id" || rc=1; done
+    list
+    exit "$rc" ;;
+  ''|-*) printf 'usage: bin/rule-check <rule-id> | --all | --list | --agents\n' >&2; exit 64 ;;
+  *) prove "$1"; rc=$?; list; exit "$rc" ;;
+esac

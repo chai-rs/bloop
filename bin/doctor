@@ -199,6 +199,23 @@ if [ -x "$BIN/job" ] && [ -f "$CONFIG" ]; then
   [ "${DONE:-0}" -gt 0 ] && check issues archive info "Closed issues still among the open ones: $DONE" "bin/archive <id> --apply, on the base branch"
 fi
 
+# --- project rules -----------------------------------------------------------------
+if [ -d .bloop/rules ]; then
+  RL=$("$BIN/rule-check" --list 2>/dev/null)
+  UNP=$(printf '%s' "$RL" | grep -c '"status":"unproven"') || :
+  TXT=$(printf '%s' "$RL" | grep -c '"status":"text-only"') || :
+  ALLR=$(printf '%s' "$RL" | grep -c '"id":') || :
+  if [ "${UNP:-0}" -gt 0 ]; then
+    check rules proven warn "Rules not proven to work: $UNP of $ALLR. A rule never seen failing may catch nothing" "bin/rule-check --all, then fix each rule it reports"
+  elif [ "${ALLR:-0}" -gt 0 ]; then
+    check rules proven ok "All $ALLR project rules are proven or text only" ""
+  fi
+  [ "${TXT:-0}" -gt 0 ] && check rules textonly info "Rules no machine checks: $TXT. Review is the only thing that catches them" "/bloop:rule again if a tool can now express one"
+  if [ -f AGENTS.md ] && [ "${ALLR:-0}" -gt 0 ] && ! grep -q '^<!-- bloop:managed rules -->$' AGENTS.md; then
+    check rules agents warn "AGENTS.md does not list the project rules, so an agent writing code does not see them" "bin/rule-check --agents"
+  fi
+fi
+
 # --- docs --------------------------------------------------------------------------
 if [ -d docs/product ]; then
   if "$BIN/docs" --check >/dev/null 2>&1; then check docs current ok "Product docs are current"

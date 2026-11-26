@@ -140,7 +140,7 @@ Answer it the way box 4 Build does, taking the most valuable rung:
 | Rung | When it is the right one |
 | --- | --- |
 | Fix the architecture | The shape of the code made the bug easy |
-| Add a lint rule or a test | A machine could have caught it. Most bugs belong here |
+| Add a lint rule or a test | A machine could have caught it. Most bugs belong here. `/bloop:rule` is how a pattern becomes a lint rule |
 | Add a skill or a rule file | It needs judgement, but the same judgement every time |
 | Leave it to a human | Genuinely a one-off |
 

@@ -79,6 +79,7 @@ A clone added with `./path/to/your/clone` loads in place. `git pull` there, then
 /bloop:docs --serve  preview those docs in a local Fumadocs site
 /bloop:report        how the work is going, with numbers. --proposal adds the decisions to make
 /bloop:doctor        what this project and machine need for the installed bloop: updates, tools, renamed config, missing sections
+/bloop:rule          add a rule like "never call the db from a handler", enforced by the strongest tool that can, and proven to bite
 ```
 
 `init` reads the repo before asking anything. If the repo already has something set up, it skips that part and reports what is left.
@@ -100,6 +101,7 @@ bin/docs                         fills the managed blocks of the product docs fr
 bin/docs-site                    prepares the Fumadocs preview behind /bloop:docs --serve
 bin/fuzz-due                     says whether fuzz-swarm should run now, by the triggers in fuzz.autoRun, and on what
 bin/doctor                       checks the plugin version, tools, config, ARCHITECTURE.md, .gitignore, issues and docs. Reads only
+bin/rule-check                   proves a project rule: its bad example fails the check, its good one passes. --agents lists rules in AGENTS.md
 bin/metrics                      DORA and our own numbers, read from the issue folders
 agents/comment-cleanser.md       hunts comments, and may only touch comments
 agents/reviewer-code.md          box 5 Review: correctness, simplicity, repo conventions
@@ -122,6 +124,7 @@ templates/auto.md                what /bloop:auto ran on one issue, and the ques
 templates/docs/                  one MDX page per question the product docs answer, with Fumadocs frontmatter and meta.json
 templates/docs-site/             the Fumadocs preview site, copied into .bloop/docs-site/ on first --serve
 templates/report.md              a status report, with where each number comes from
+templates/rule.md                one project rule: the sentence, the tool and file that enforce it, the check that proves it
 templates/deliver.md             the delivery run, and what a rollback would take
 templates/retro.md               lessons turned into guardrails, with the numbers
 skills/init                      box 1 Architecting: detect, business, skeleton
@@ -151,6 +154,7 @@ skills/auto                      outside the boxes: run the skill bin/job names,
 skills/docs                      outside the boxes: product docs as Fumadocs-ready MDX, and a preview
 skills/report                    outside the boxes: a status report or a proposal, every number from a script
 skills/doctor                    outside the boxes: run bin/doctor, report each finding with its fix, apply the safe ones on a yes
+skills/rule                      outside the boxes: a rule in words becomes a lint, boundary or structural rule, proven bad fails and good passes
 templates/                       starting files the skills copy, including external/README.md
 docs/                            mermaid diagrams of each bin script
 drafts/                          decision records. Read before changing a skill

@@ -96,8 +96,8 @@ Write the answer into `## Why the gate missed this` in `build.md`, and with it t
 | Step | When it is the right one |
 | --- | --- |
 | **Fix the architecture** | The shape of the code made the mistake easy. The most valuable fix, and the rarest |
-| **Add a lint rule or a test** | A machine could have caught it. This is where most findings belong |
-| **Add a skill or a rule file** | It needs judgement, but the same judgement every time |
+| **Add a lint rule or a test** | A machine could have caught it. This is where most findings belong. `/bloop:rule` adds a lint or boundary rule and proves it bites |
+| **Add a skill or a rule file** | It needs judgement, but the same judgement every time. `/bloop:rule` records a text-only rule in `AGENTS.md` |
 | **Leave it to a human** | Genuinely a one-off judgement call |
 
 **Answering "leave it to a human" often is the signal that the gate is too weak.** It is allowed, but it has to be the reason, not the default. The same record is what box 1 Architecting reads when someone asks to raise `loop.trustLevel`, because a gate that keeps missing things is not ready for more autonomy.
