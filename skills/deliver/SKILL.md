@@ -105,6 +105,18 @@ Set `DEPLOYED-AT` and `DEPLOYED-BY` only once something really shipped. `DEPLOYE
 
 With no deploy at all, `STATUS` stays `MERGED`. That is an honest end state, not an unfinished one.
 
+### Refresh the product docs
+
+When the project has product docs, their capabilities, journeys and changelog just changed. Rewrite only the blocks a script owns:
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/docs"
+```
+
+It exits 1 with "does not exist yet" on a project without docs. That is not a failure: say nothing and carry on. When it names files it refreshed, say which ones, and that they wait to be committed with the next change. Never commit them to the base branch yourself.
+
+Run it after the merge and again after a deploy, because each one moves a capability: merged first, live after.
+
 ## Step 5 · Clean up the worktree
 
 Ask before removing `.worktrees/<issue-id>`. A merged branch still holds the only copy of anything that was never committed, and the user may want to look first.
