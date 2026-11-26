@@ -50,7 +50,9 @@ fi
 
 # Copy the template again whenever the plugin's copy changed, keeping node_modules
 STAMP=$(find "$TEMPLATE" -type f -exec cksum {} + 2>/dev/null | sort | cksum | cut -d' ' -f1)
+FRESH=0
 if [ "$(cat "$SITE/.bloop-template" 2>/dev/null)" != "$STAMP" ]; then
+  FRESH=1
   mkdir -p "$SITE"
   cp -R "$TEMPLATE/." "$SITE/"
   printf '%s\n' "$STAMP" > "$SITE/.bloop-template"
@@ -58,14 +60,22 @@ if [ "$(cat "$SITE/.bloop-template" 2>/dev/null)" != "$STAMP" ]; then
 fi
 
 TITLE=$(sed -n 's/^# //p' ARCHITECTURE.md 2>/dev/null | head -1)
+
+# The API reference comes from the contract's OpenAPI file, when there is one
+OPENAPI=$(tr -d '\n' < .bloop/config.json 2>/dev/null \
+  | sed -n 's/.*"contract"[[:space:]]*:[[:space:]]*{[^}]*"openapi"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+[ -n "$OPENAPI" ] || OPENAPI=openapi.yaml
+OPENAPI=${OPENAPI#./}
 {
   printf 'BLOOP_DOCS_DIR=%s/%s\n' "$ROOT" "$DIR"
   printf 'BLOOP_DOCS_TITLE=%s\n' "${TITLE:-Docs}"
   printf 'BLOOP_DOCS_PORT=%s\n' "$PORT"
+  [ -f "$OPENAPI" ] && printf 'BLOOP_OPENAPI=%s/%s\n' "$ROOT" "$OPENAPI"
 } > "$SITE/.env.local"
 
-if [ ! -d "$SITE/node_modules" ]; then
-  printf 'bloop: installing the preview site, once. This takes a minute\n' >&2
+# Install on the first run, and again whenever a new template may bring new packages
+if [ ! -d "$SITE/node_modules" ] || [ "$FRESH" = 1 ]; then
+  printf 'bloop: installing the preview site. The first time takes a minute\n' >&2
   (cd "$SITE" && npm install --no-audit --no-fund --loglevel=error) >&2 \
     || { printf 'bloop: npm install failed in %s\n' "$SITE" >&2; exit 1; }
 fi

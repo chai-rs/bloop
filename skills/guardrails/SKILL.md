@@ -342,7 +342,7 @@ Ask one thing: **does this project already have a Fumadocs site, or want one?**
 | # | Option | Why |
 | --- | --- | --- |
 | 1 | **The preview only** ← recommended | `--serve` builds one in `.bloop/docs-site/`, gitignored. Nothing to maintain. Good until the docs need to be public |
-| 2 | Point at the project's own site | Set `serveCommand`, and point its `source.config.ts` at `dir` with `defineDocs({ dir: 'docs/product' })`. Mermaid needs `remarkMdxMermaid` and a `Mermaid` component, as in the preview's `components/` |
+| 2 | Point at the project's own site | Set `serveCommand`, and point its `source.config.ts` at `dir` with `defineDocs({ dir: 'docs/product' })`. Mermaid needs `remarkMdxMermaid` and a `Mermaid` component, and the API reference needs `fumadocs-openapi` with `staticSource({ baseDir: 'openapi', groupBy: 'tag', meta: true })` in the loader. The preview's `lib/` and `components/` show both |
 | 3 | Create a site in the repo | `npm create fumadocs-app`, then option 2. Only when the docs will be deployed |
 
 ## Done when
