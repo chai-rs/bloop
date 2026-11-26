@@ -64,7 +64,10 @@ function dash(s) { return (s == "") ? "—" : s }
 /^    \{/ {
   if (sec == "frs") {
     n++; fid[n] = get($0, "id"); ftext[get($0, "id")] = get($0, "text")
-    caps = caps sprintf("| %s | %s | %s | %s |\n", get($0, "text"), word(get($0, "status")), dash(get($0, "liveSince")), dash(get($0, "issues")))
+    st = get($0, "status"); count[st]++
+    g = get($0, "group"); if (g != "") grouped = 1
+    if (!(g in gseen)) { gseen[g] = 1; ng++; gname[ng] = g }
+    rows[g] = rows[g] sprintf("| %s | %s | %s | %s |\n", get($0, "text"), word(st), dash(get($0, "liveSince")), dash(get($0, "issues")))
   }
   if (sec == "journeys") {
     miss = get($0, "notLive"); m = ""
@@ -83,7 +86,17 @@ function dash(s) { return (s == "") ? "—" : s }
 }
 END {
   f = out "/capabilities"
-  printf "| Capability | Status | Since | Issues |\n| --- | --- | --- | --- |\n%s", caps > f
+  # One line of totals first: with many requirements, the table is not where
+  # a reader learns how far along the product is
+  split("live flagged merged building planned rolled-back unpicked", order, " ")
+  tot = ""
+  for (i = 1; i <= 7; i++) if (count[order[i]] > 0) tot = tot (tot == "" ? "" : " · ") count[order[i]] " " tolower(word(order[i]))
+  printf "%d requirements: %s.\n\n", n, tot > f
+  head = "| Capability | Status | Since | Issues |\n| --- | --- | --- | --- |\n"
+  for (i = 1; i <= ng; i++) {
+    if (grouped) printf "%s### %s\n\n", (i > 1 ? "\n" : ""), (gname[i] == "" ? "Other" : gname[i]) > f
+    printf "%s%s", head, rows[gname[i]] > f
+  }
   printf "\nAs of `%s`, last deploy %s.\n", main, (last == "" ? "none yet" : last " at `" lastsha "`") > f
   f = out "/journeys"
   if (jr == "") printf "No journeys in ARCHITECTURE.md yet. Run /bloop:init to add them.\n" > f

@@ -67,6 +67,12 @@ while IFS="$US" read -r id arch fr kind box st; do
   [ -n "$title" ] || title=$(printf '%s' "$id" | sed 's/^[0-9]*-[0-9]*-[0-9]*-//; s/-/ /g')
   merge=$(header "$d/deliver.md" MERGE)
   mat=$(header "$d/deliver.md" MERGED-AT)
+  # Merged outside /bloop:deliver, such as by a button on GitHub, leaves no
+  # deliver.md. A merge commit naming the issue's branch is evidence enough.
+  if [ -z "$merge" ] || [ "$merge" = none ]; then
+    g=$(git log -1 --merges --format='%h %cs' --grep="/$id\$" HEAD 2>/dev/null)
+    [ -n "$g" ] && { merge=${g% *}; mat=${g#* }; }
+  fi
   dat=$(header "$d/deliver.md" DEPLOYED-AT)
   dst=$(header "$d/deliver.md" STATUS)
   if [ "$dst" = ROLLED-BACK ]; then s=rolled-back
@@ -84,11 +90,49 @@ done < "$TMP/raw"
 
 rank() { case "$1" in live) echo 6 ;; flagged) echo 5 ;; merged) echo 4 ;; building) echo 3 ;; planned) echo 2 ;; rolled-back) echo 1 ;; *) echo 0 ;; esac; }
 
-# --- requirements: "- FR-1 text" lines under ## Functional requirements
-section 'Functional requirements' | sed -n "s/^- \\(FR-[0-9][0-9]*\\)[[:space:]]*\\(.*\\)\$/\\1$US\\2/p" > "$TMP/frs"
+# --- requirements
+# From the "## Functional requirement(s)" section of ARCHITECTURE.md, written as a
+# list (- FR-1 text) or a table (| FR-1 | text |), and from every markdown file
+# that section links to: a project with many requirements keeps them in a file of
+# its own. Ids are any FR-<word or number>, such as FR-12 or FR-TEN-3. A file's
+# "## " headings become the group each requirement sits under.
+extract() {
+  awk -v us="$US" '
+    /^## / { g = $0; sub(/^## +/, "", g); sub(/^[0-9]+\. */, "", g) }
+    /^- *FR-[A-Za-z0-9-]+/ {
+      line = $0; sub(/^- */, "", line)
+      id = line; sub(/[[:space:]].*$/, "", id); sub(/[,;:.]+$/, "", id)
+      text = line; sub(/^[^[:space:]]+[[:space:]]*/, "", text)
+      print id us text us g; next
+    }
+    /^\| *FR-[A-Za-z0-9-]+ *\|/ {
+      split($0, c, "|"); id = c[2]; text = c[3]
+      gsub(/^ +| +$/, "", id); gsub(/^ +| +$/, "", text)
+      print id us text us g
+    }' "$1"
+}
+sed -n '/^## Functional requirements\{0,1\}$/,/^## /p' "$ARCH" | sed '/^## /d' > "$TMP/frsection"
+: > "$TMP/frsrc"
+for f in $(grep -o '](\([^)]*\.md\))' "$TMP/frsection" | sed 's/^](//; s/)$//; s/#.*$//' | sort -u); do
+  [ -f "$f" ] && extract "$f" >> "$TMP/frsrc"
+done
+extract "$TMP/frsection" >> "$TMP/frsrc"
+
+# The first entry of an id wins, so a linked file beats the summary line in
+# ARCHITECTURE.md. An id that only names a group of others, such as FR-TEN when
+# FR-TEN-1 exists, is a heading and not a requirement.
+awk -F"$US" -v us="$US" '
+  !($1 in seen) { seen[$1] = 1; n++; id[n] = $1; line[n] = $0 }
+  END {
+    for (i = 1; i <= n; i++) {
+      group = 0
+      for (j = 1; j <= n; j++) if (index(id[j], id[i] "-") == 1) { group = 1; break }
+      if (!group) print line[i]
+    }
+  }' "$TMP/frsrc" > "$TMP/frs"
 
 : > "$TMP/frstatus"
-while IFS="$US" read -r fr text; do
+while IFS="$US" read -r fr text group; do
   best=unpicked; bestr=0; open=0; ids=''; since=''
   while IFS="$US" read -r id ifr kind s title merge mat dat; do
     [ "$ifr" = "$fr" ] || continue
@@ -98,7 +142,7 @@ while IFS="$US" read -r fr text; do
     # The earliest deploy. Dates are YYYY-MM-DD, so sort orders them, and dash has no string <
     if [ "$s" = live ] && { [ -z "$since" ] || [ "$(printf '%s\n%s\n' "$dat" "$since" | sort | head -1)" = "$dat" ]; }; then since=$dat; fi
   done < "$TMP/issues"
-  printf '%s\037%s\037%s\037%s\037%s\037%s\n' "$fr" "$(printf '%s' "$text" | clean)" "$best" "$open" "$since" "$ids" >> "$TMP/frstatus"
+  printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\n' "$fr" "$(printf '%s' "$text" | clean)" "$best" "$open" "${since:--}" "${ids:--}" "$(printf '%s' "$group" | clean)" >> "$TMP/frstatus"
 done < "$TMP/frs"
 
 # --- journeys: "| J1 text | who | FR-1, FR-2 |" rows under ## Journeys
@@ -119,10 +163,12 @@ printf '  "asOf": { "main": %s, "lastDeploy": %s, "lastDeployCommit": %s },\n' \
 
 printf '  "frs": ['
 sep=''
-while IFS="$US" read -r fr text best open since ids; do
+while IFS="$US" read -r fr text best open since ids group; do
+  [ "$since" = - ] && since=''
+  [ "$ids" = - ] && ids=''
   list=$(for i in $ids; do printf '"%s",' "$i"; done | sed 's/,$//')
-  printf '%s\n    { "id": "%s", "text": "%s", "status": "%s", "openIssues": %s, "liveSince": %s, "issues": [%s] }' \
-    "$sep" "$fr" "$text" "$best" "$open" "$(jstr "$since")" "$list"
+  printf '%s\n    { "id": "%s", "text": "%s", "group": %s, "status": "%s", "openIssues": %s, "liveSince": %s, "issues": [%s] }' \
+    "$sep" "$fr" "$text" "$(jstr "$group")" "$best" "$open" "$(jstr "$since")" "$list"
   sep=','
 done < "$TMP/frstatus"
 printf '\n  ],\n'
