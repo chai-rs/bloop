@@ -7,6 +7,9 @@
 #
 #   bin/metrics             the last 30 days
 #   bin/metrics --days 90   a longer window
+#   bin/metrics --report    also the numbers /bloop:report prints: the window before
+#                           this one, work in progress, agent runs, requirement pace,
+#                           and a delivery health with the reasons behind it
 #
 # JSON goes to stdout. The sentences go to stderr.
 set -u
@@ -18,9 +21,11 @@ ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
 cd "$ROOT" || exit 1
 
 DAYS=30
+REPORT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --days) shift; DAYS=${1:-30} ;;
+    --report) REPORT=1 ;;
     -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
     *)  printf 'bloop: unexpected argument %s\n' "$1" >&2; exit 64 ;;
   esac
@@ -80,8 +85,21 @@ ROWS=$(
     retro=no
     [ -f "$d/retro.md" ] && retro=yes
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$id" "$born" "$decision" "$status" "$merged" "$deployed" "$rolled" "$rounds" "$misses" "$retro"
+    intake=$(header "$d/intake.md" DECISION); [ -n "$intake" ] || intake=none
+
+    # What /bloop:auto recorded: skill runs, and why each run stopped
+    runs=0; waits=0; stalls=0; broken=0; auto=no
+    if [ -f "$d/auto.md" ]; then
+      auto=yes
+      runs=$(grep -cE '^\| *[0-9]+ *\|' "$d/auto.md") || :
+      waits=$(grep -c '^- .* · waiting ·' "$d/auto.md") || :
+      stalls=$(grep -c '^- .* · stall ·' "$d/auto.md") || :
+      broken=$(grep -c '^- .* · broken ·' "$d/auto.md") || :
+    fi
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$id" "$born" "$decision" "$status" "$merged" "$deployed" "$rolled" "$rounds" "$misses" "$retro" \
+      "$intake" "$auto" "${runs:-0}" "${waits:-0}" "${stalls:-0}" "${broken:-0}"
   done
 )
 
@@ -90,7 +108,19 @@ ROWS=$(
   exit 1
 }
 
-printf '%s\n' "$ROWS" | awk -F'\t' -v days="$DAYS" -v today="$TODAY" '
+# Requirement pace and the goal dates, only for --report
+FRTOTAL=0; FRLIVE=0; LIVEDATES=''; GOALDATES=''
+if [ "$REPORT" = 1 ]; then
+  STATUS=$("$(dirname "$0")/status" 2>/dev/null) || STATUS=''
+  FRTOTAL=$(printf '%s\n' "$STATUS" | grep -c '"id": "FR-') || :
+  FRLIVE=$(printf '%s\n' "$STATUS" | grep '"id": "FR-' | grep -c '"status": "live"') || :
+  LIVEDATES=$(printf '%s\n' "$STATUS" | sed -n 's/.*"liveSince": "\([0-9-]*\)".*/\1/p' | tr '\n' ' ')
+  GOALDATES=$(sed -n '/^## Goals$/,/^## /p' ARCHITECTURE.md 2>/dev/null \
+    | grep -oE '\| *[0-9]{4}-[0-9]{2}-[0-9]{2} *\|' | tr -d '| ' | sort | tr '\n' ' ')
+fi
+
+printf '%s\n' "$ROWS" | awk -F'\t' -v days="$DAYS" -v today="$TODAY" -v report="$REPORT" \
+  -v frtotal="${FRTOTAL:-0}" -v frlive="${FRLIVE:-0}" -v livedates="$LIVEDATES" -v goaldates="$GOALDATES" '
 # days since 1970-01-01, by the usual civil-to-days arithmetic.
 # Written out because POSIX awk has no date functions at all.
 function tod(s,   y, m, d, era, yoe, doy, doe) {
@@ -103,13 +133,27 @@ function tod(s,   y, m, d, era, yoe, doy, doe) {
   doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
   return era * 146097 + doe - 719468
 }
+# The inverse of tod, days since 1970-01-01 back to YYYY-MM-DD
+function civil(z,   era, doe, yoe, y, doy, mp, d, m) {
+  z += 719468
+  era = int((z >= 0 ? z : z - 146096) / 146097)
+  doe = z - era * 146097
+  yoe = int((doe - int(doe / 1460) + int(doe / 36524) - int(doe / 146096)) / 365)
+  y = yoe + era * 400
+  doy = doe - (365 * yoe + int(yoe / 4) - int(yoe / 100))
+  mp = int((5 * doy + 2) / 153)
+  d = doy - int((153 * mp + 2) / 5) + 1
+  m = mp + (mp < 10 ? 3 : -9)
+  if (m <= 2) y++
+  return sprintf("%04d-%02d-%02d", y, m, d)
+}
 function median(a, n,   i, j, t) {
   for (i = 1; i < n; i++) for (j = i + 1; j <= n; j++) if (a[j] < a[i]) { t = a[i]; a[i] = a[j]; a[j] = t }
   if (n == 0) return -1
   if (n % 2) return a[int(n / 2) + 1]
   return (a[n / 2] + a[n / 2 + 1]) / 2
 }
-BEGIN { now = tod(today); cut = now - days }
+BEGIN { now = tod(today); cut = now - days; cut2 = cut - days }
 {
   id = $1; born = $2; decision = $3; status = $4
   merged = $5; deployed = $6; rolled = $7; rounds = $8 + 0; misses = $9 + 0; retro = $10
@@ -118,7 +162,25 @@ BEGIN { now = tod(today); cut = now - days }
   if (decision ~ /^ESCALATE/) esc++
   if (decision == "none") open++
 
+  intake = $11; auto = $12; runs = $13 + 0; waits = $14 + 0; stalls = $15 + 0; broken = $16 + 0
+
   m = tod(merged)
+  # The window before this one, for the trend
+  if (m >= cut2 && m < cut) {
+    win2++
+    l2 = tod(born)
+    if (l2 >= 0) { lead2[++nlead2] = m - l2 }
+  }
+  # Work in progress: accepted, not merged, not rolled back
+  if (intake == "ACCEPT" && m < 0 && status !~ /ROLLED-BACK/) {
+    wip++
+    b = tod(born); if (b >= 0 && now - b > oldest) oldest = now - b
+  }
+  if (auto == "yes") {
+    autoIssues++; autoRuns += runs; autoWaits += waits; autoStalls += stalls; autoBroken += broken
+    if (m >= 0 && stalls == 0 && broken == 0) autoClean++
+    if (m >= 0) autoMerged++
+  }
   if (m >= cut) {
     win++
     l = tod(born)
@@ -145,7 +207,43 @@ END {
   printf "\"ours\":{"
   if (rn > 0) printf "\"reviewRoundsMean\":%.2f,", rsum / rn; else printf "\"reviewRoundsMean\":null,"
   if (total > 0) printf "\"escalateRate\":%.4f,", esc / total; else printf "\"escalateRate\":null,"
-  printf "\"gateMisses\":%d,\"retrosWritten\":%d}}\n", msum + 0, retros + 0
+  printf "\"gateMisses\":%d,\"retrosWritten\":%d}", msum + 0, retros + 0
+  if (report == 1) {
+    # Requirement pace: requirements that went live in this window, and what is left
+    k = split(livedates, ld, " "); frwin = 0
+    for (i = 1; i <= k; i++) if (tod(ld[i]) >= cut) frwin++
+    left = frtotal - frlive
+    proj = (frwin > 0) ? left * days / frwin : -1
+    # The latest goal date, the bar a delivery projection is held to
+    g = split(goaldates, gd, " "); last = -1; lastd = ""
+    for (i = 1; i <= g; i++) if (tod(gd[i]) > last) { last = tod(gd[i]); lastd = gd[i] }
+    lm2 = median(lead2, nlead2)
+
+    printf ",\"report\":{"
+    printf "\"previous\":{\"delivered\":%d,", win2 + 0
+    if (lm2 >= 0) printf "\"leadTimeDaysMedian\":%.1f,\"leadTimeN\":%d},", lm2, nlead2; else printf "\"leadTimeDaysMedian\":null,\"leadTimeN\":0},"
+    printf "\"n\":{\"delivered\":%d,\"leadTime\":%d,\"failures\":%d,\"restores\":%d},", win + 0, nlead + 0, fail + 0, nrest + 0
+    printf "\"wip\":{\"open\":%d,\"oldestDays\":%s},", wip + 0, (wip > 0 ? oldest + 0 : "null")
+    printf "\"agents\":{\"issues\":%d,\"runs\":%d,\"questions\":%d,\"stalls\":%d,\"broken\":%d,\"merged\":%d,\"mergedWithoutStall\":%d},", autoIssues + 0, autoRuns + 0, autoWaits + 0, autoStalls + 0, autoBroken + 0, autoMerged + 0, autoClean + 0
+    printf "\"requirements\":{\"total\":%d,\"live\":%d,\"liveThisWindow\":%d,\"left\":%d,", frtotal, frlive, frwin, left
+    if (proj >= 0) printf "\"projectedDaysToAll\":%d,\"projectedDate\":\"%s\"},", int(proj + 0.5), civil(now + int(proj + 0.5)); else printf "\"projectedDaysToAll\":null,\"projectedDate\":null},"
+    printf "\"latestGoal\":%s,", (lastd == "" ? "null" : "\"" lastd "\"")
+
+    # Delivery health, from rules, never from a feeling. Each reason says which rule fired.
+    health = "on-track"; reasons = ""
+    if (win + 0 == 0 && frlive + 0 == 0) { health = "insufficient-data"; reasons = "\"nothing delivered in the window and no requirement live\"" }
+    else {
+      if (left > 0 && proj < 0) { health = "at-risk"; reasons = reasons sep "\"" left " requirements left and none went live in the window\""; sep = "," }
+      if (proj >= 0 && last >= 0 && now + proj > last) {
+        health = (now + proj > last + days) ? "off-track" : "at-risk"
+        reasons = reasons sep "\"at the current pace the last requirement lands " civil(now + int(proj + 0.5)) ", after the latest goal date " lastd "\""; sep = ","
+      }
+      if (win >= 4 && fail / win > 0.25) { if (health == "on-track") health = "at-risk"; reasons = reasons sep "\"" fail " of " win " deliveries were rolled back\""; sep = "," }
+      if (wip > 0 && oldest > 3 * days) { if (health == "on-track") health = "at-risk"; reasons = reasons sep "\"the oldest open issue is " oldest " days old\""; sep = "," }
+    }
+    printf "\"health\":\"%s\",\"reasons\":[%s]}", health, reasons
+  }
+  printf "}\n"
 
   f = "/dev/stderr"
   printf "%d issues on disk, %d delivered in the last %d days\n", total, win, days > f
