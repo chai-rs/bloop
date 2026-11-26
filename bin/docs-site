@@ -1,0 +1,78 @@
+#!/bin/sh
+# bloop · bin/docs-site
+#
+# Prepares a Fumadocs site that previews the product docs, for /bloop:docs --serve.
+# The site lives in .bloop/docs-site/, gitignored, and reads the docs where they
+# are, so an edit shows on the next reload. It is a preview, not the project's site.
+#
+#   bin/docs-site          prepare it, then print JSON: where it is and how to run it
+#   bin/docs-site --run    prepare it, then run the dev server in the foreground
+#
+# When docs.serveCommand is set in .bloop/config.json, the project has a site of its
+# own. This prints that command and prepares nothing.
+set -u
+
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+RUN=0
+case "${1:-}" in
+  --run) RUN=1 ;;
+  '') ;;
+  *) printf 'usage: bin/docs-site [--run]\n' >&2; exit 64 ;;
+esac
+
+docs_key() {
+  tr -d '\n' < .bloop/config.json 2>/dev/null \
+    | sed -n "s/.*\"docs\"[[:space:]]*:[[:space:]]*{[^}]*\"$1\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\)\"\{0,1\}.*/\1/p"
+}
+DIR=$(docs_key dir); [ -n "$DIR" ] || DIR=docs/product
+PORT=$(docs_key port); [ -n "$PORT" ] || PORT=4000
+OWN=$(docs_key serveCommand)
+
+if [ -n "$OWN" ]; then
+  printf '{"own":true,"command":"%s"}\n' "$OWN"
+  exit 0
+fi
+
+[ -d "$DIR" ] || { printf 'bloop: %s does not exist yet, run /bloop:docs first\n' "$DIR" >&2; exit 1; }
+command -v node >/dev/null 2>&1 || { printf 'bloop: the preview needs Node.js 20 or newer, and node is not installed\n' >&2; exit 1; }
+
+SITE=.bloop/docs-site
+TEMPLATE="$(cd "$(dirname "$0")/.." && pwd)/templates/docs-site"
+
+# A preview must never land in a commit
+if ! grep -qxF "$SITE/" .gitignore 2>/dev/null; then
+  printf '%s/\n' "$SITE" >> .gitignore
+  printf 'bloop: added %s/ to .gitignore\n' "$SITE" >&2
+fi
+
+# Copy the template again whenever the plugin's copy changed, keeping node_modules
+STAMP=$(find "$TEMPLATE" -type f -exec cksum {} + 2>/dev/null | sort | cksum | cut -d' ' -f1)
+if [ "$(cat "$SITE/.bloop-template" 2>/dev/null)" != "$STAMP" ]; then
+  mkdir -p "$SITE"
+  cp -R "$TEMPLATE/." "$SITE/"
+  printf '%s\n' "$STAMP" > "$SITE/.bloop-template"
+  printf 'bloop: copied the preview site into %s\n' "$SITE" >&2
+fi
+
+TITLE=$(sed -n 's/^# //p' ARCHITECTURE.md 2>/dev/null | head -1)
+{
+  printf 'BLOOP_DOCS_DIR=%s/%s\n' "$ROOT" "$DIR"
+  printf 'BLOOP_DOCS_TITLE=%s\n' "${TITLE:-Docs}"
+  printf 'BLOOP_DOCS_PORT=%s\n' "$PORT"
+} > "$SITE/.env.local"
+
+if [ ! -d "$SITE/node_modules" ]; then
+  printf 'bloop: installing the preview site, once. This takes a minute\n' >&2
+  (cd "$SITE" && npm install --no-audit --no-fund --loglevel=error) >&2 \
+    || { printf 'bloop: npm install failed in %s\n' "$SITE" >&2; exit 1; }
+fi
+
+if [ "$RUN" = 1 ]; then
+  cd "$SITE" && BLOOP_DOCS_PORT=$PORT exec npm run dev
+fi
+
+printf '{"own":false,"site":"%s","docs":"%s","port":%s,"url":"http://localhost:%s/docs","command":"npm --prefix %s run dev"}\n' \
+  "$SITE" "$DIR" "$PORT" "$PORT" "$SITE"

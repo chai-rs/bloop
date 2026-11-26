@@ -11,7 +11,7 @@ Box 4 Build. You are the driver. You loop over slices until there are none left.
 
 ## Standing rules
 
-1. **Work inside the worktree only.** Never edit the main checkout
+1. **Change code inside the worktree only.** Never edit code in the main checkout. **Issue files live in the main checkout only.** Find the folder with `"$CLAUDE_PLUGIN_ROOT/bin/job" --dir <issue-id>`, which prints an absolute path, and write there even while you work in a worktree. A file written into the worktree's own `.bloop/` is invisible to `bin/job`, the board and `/bloop:auto`
 2. **Never touch protected paths** listed in `.claude/settings.json`. If one genuinely has to change, set `STATUS: BLOCKED` with a reason and stop
 3. **One slice, one commit.** The commit message names the slice and the check
 4. **Before writing code, read `${CLAUDE_PLUGIN_ROOT}/references/code-rules.md` in full.** That is the whole standard
@@ -66,7 +66,8 @@ Repeat until every row in `## Slices` in `spec.md` is done.
 4. **Call `bin/gate`**
 
    ```bash
-   "$CLAUDE_PLUGIN_ROOT/bin/gate" --evidence .bloop/issues/<id>/evidence/slice-N.txt
+   ISSUE_DIR=$("$CLAUDE_PLUGIN_ROOT/bin/job" --dir <id>)
+   "$CLAUDE_PLUGIN_ROOT/bin/gate" --evidence "$ISSUE_DIR/evidence/slice-N.txt"
    ```
 5. **It fails**: fix what the error says and go back to 3. **No more than `loop.maxRounds` rounds**, which defaults to 3
 6. **It passes**: call `clean-comment` first, then commit, then call `evidence-pack` to record it

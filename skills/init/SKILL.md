@@ -49,12 +49,15 @@ Then branch on `stage`.
 Ask in this order, one at a time. Skip anything the user already answered.
 
 1. **business** who does this system make money for, or create value for, and how
-2. **scope** what v1 does and what it **does not** do. Ask for both sides
-3. **dataflow** where things come in, what they pass through, where they go
-4. **modules** what the pieces are, and which data each one owns
-5. **functional requirements** what the system must be able to do, as a list
-6. **non-functional requirements** offer starting numbers to choose from: latency p95, concurrent users, RPO/RTO, data regulation
-7. **tech stack** confirm what detect found. On an empty repo, offer two or three paths with reasons
+2. **what makes it different** two to four things it does that the usual alternative does not. If the answer is "nothing yet", write that down: it is a finding, not a gap to paper over
+3. **goals** one to three outcomes with a number, a target, a date, and where the number comes from. Push back on an activity, such as "ship the API", by asking who is better off once it ships
+4. **scope** what v1 does and what it **does not** do. Ask for both sides
+5. **dataflow** where things come in, what they pass through, where they go
+6. **modules** what the pieces are, and which data each one owns
+7. **functional requirements** what the system must be able to do, as a list
+8. **journeys** what a person does from start to finish, and which FRs each one needs. Every FR should sit in at least one journey. An FR in none is either missing a journey or not needed
+9. **non-functional requirements** offer starting numbers to choose from: latency p95, concurrent users, RPO/RTO, data regulation
+10. **tech stack** confirm what detect found. On an empty repo, offer two or three paths with reasons
 
 ## Step 2 · Confirm the kind of project
 

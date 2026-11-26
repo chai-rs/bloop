@@ -81,6 +81,18 @@ Anything this issue chose not to do goes under `## What was left undone`, with t
 
 Run `bin/job <issue-id>` one last time. It reports `done` when `retro.md` exists and every `REPEATS` row carries an issue id.
 
+### Refresh the product docs first
+
+When the project has product docs, their capabilities, journeys and changelog just changed. Rewrite only the blocks a script owns:
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/docs"
+```
+
+It exits 1 with "does not exist yet" on a project without docs. That is not a failure: say nothing and carry on. When it names files it refreshed, say which ones, and that they wait to be committed with the next change. Never commit them to the base branch yourself.
+
+Run it before archiving. `bin/status` reads the archive too, so the order does not change the result, but a refresh that fails should be seen while the issue is still open.
+
 ### Archive the folder
 
 Once `bin/job` says `done`, move the folder out of the open issues:

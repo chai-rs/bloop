@@ -22,7 +22,7 @@ Step 3 is the one people skip. **You have to see the failure with your own eyes*
 
 If this slice's check is the `REPRO` command from `debug.md`, the check exists already. **Do not write a new one.**
 
-1. Copy `.bloop/issues/<id>/repro/<CHECK path>.txt` to `<CHECK path>` in the worktree, dropping the `.txt`
+1. Copy `<issue folder>/repro/<CHECK path>.txt` to `<CHECK path>` in the worktree, dropping the `.txt`. The issue folder is in the main checkout: `bin/job --dir <id>` prints it
 2. Run it and watch it fail, the same as step 3 above. Compare the failure with `repro/red.txt`
 3. **It passes?** The base moved since `debug` ran, or the bug is already gone. Do not write code. Report it to `build`, which stops and asks the user
 

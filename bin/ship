@@ -17,7 +17,10 @@ set -u
 # so it is resolved from $0 and never from the project root
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd) || exit 1
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+# The main checkout, even when called from inside a worktree: issue files live
+# only there. git lists the main worktree first.
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || {
   printf 'bloop: this is not a git repo\n' >&2; exit 1
 }
 cd "$ROOT" || exit 1

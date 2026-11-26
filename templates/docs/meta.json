@@ -1,0 +1,20 @@
+{
+  "title": "<project name>",
+  "pages": [
+    "index",
+    "---Product---",
+    "capabilities",
+    "journeys",
+    "---Use it---",
+    "getting-started",
+    "guides",
+    "---Test it---",
+    "testing",
+    "---How it works---",
+    "architecture",
+    "concepts",
+    "---Reference---",
+    "api",
+    "changelog"
+  ]
+}

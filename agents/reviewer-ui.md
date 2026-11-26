@@ -51,4 +51,4 @@ Point at the screenshot, or at the file and line. For contrast, give the measure
 
 ## Output
 
-Write `review-ui.md` from `templates/review.md` into `.bloop/issues/<id>/review/round-N/`, with `## Checked from last round` on later rounds and `## What I did not cover` always.
+Write `review-ui.md` from `templates/review.md` into `<issue folder>/review/round-N/`, where the issue folder is the absolute path `review` gave you, in the main checkout, with `## Checked from last round` on later rounds and `## What I did not cover` always.

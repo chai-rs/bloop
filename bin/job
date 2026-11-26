@@ -11,13 +11,17 @@
 #   bin/job --brief      one line, for the hook
 #   bin/job --board      rebuild the board: one folder per state, holding symlinks
 #   bin/job --next       print the id of the next issue /bloop:auto should run, or nothing
+#   bin/job --dir <id>   print the absolute path of the issue's folder, in the main checkout
 #   bin/job <issue-id>   JSON for a single issue, open or archived
 #
 # The board is a view, never the truth. It is rebuilt from the files every time
 # and gitignored, because folders moved on two branches do not merge.
 set -u
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# The main checkout, even when called from inside a worktree: issue files live
+# only there. git lists the main worktree first.
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT" || exit 1
 
 jstr() { if [ -z "${1:-}" ]; then printf 'null'; else printf '"%s"' "$1"; fi; }
@@ -376,12 +380,14 @@ BRIEF=0
 ALL=0
 BOARD=0
 NEXTONE=0
+DIRONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --brief) BRIEF=1 ;;
     --all)   ALL=1 ;;
     --board) BOARD=1 ;;
     --next)  NEXTONE=1 ;;
+    --dir)   DIRONLY=1 ;;
     -*) printf 'bloop: unknown option %s\n' "$1" >&2; exit 64 ;;
     *)  [ -n "$ONE" ] && { printf 'bloop: one issue at a time\n' >&2; exit 64; }
         ONE=$1 ;;
@@ -404,6 +410,17 @@ if [ "$NEXTONE" = 1 ]; then
       [2-6]-*) printf '%s\t%s\n' "$BOX" "$(basename "$d")" ;;
     esac
   done | sort -t "$(printf '\t')" -k1,1nr -k2,2 | head -1 | cut -f2
+  exit 0
+fi
+
+# Skills working inside a worktree write issue files here, never into the worktree,
+# so the board and /bloop:auto see every change the moment it happens.
+if [ "$DIRONLY" = 1 ]; then
+  [ -n "$ONE" ] || { printf 'usage: bin/job --dir <issue-id>\n' >&2; exit 64; }
+  if [ -d "$ISSUES_DIR/$ONE" ]; then printf '%s/%s/%s\n' "$ROOT" "$ISSUES_DIR" "$ONE"
+  elif [ -d "$ARCHIVE_DIR/$ONE" ]; then printf '%s/%s/%s\n' "$ROOT" "$ARCHIVE_DIR" "$ONE"
+  else printf 'bloop: no issue named %s\n' "$ONE" >&2; exit 1
+  fi
   exit 0
 fi
 

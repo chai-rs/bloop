@@ -15,8 +15,9 @@ Box 6 Deliver, the first half. You take an approved issue from a green review to
 2. **Never force-push the base branch.** A rebase force-pushes the issue's own branch and nothing else
 3. **Never deploy or roll back without the user saying so in this session.** Not at any `trustLevel`. `deliver.deployCommand` records the command. It does not grant permission
 4. **Never write `APPROVED-BY` and never raise `loop.trustLevel`.** Those are a human's signature, the same rule as `CONFIRMED`
-5. **Report format**: read `${CLAUDE_PLUGIN_ROOT}/references/report-style.md` before your first report
-6. **Language**: talk to the user in the language the user writes in. Everything written to disk is English
+5. **Issue files live in the main checkout only.** Find the folder with `"$CLAUDE_PLUGIN_ROOT/bin/job" --dir <issue-id>`, which prints an absolute path, and write there even while you work in a worktree. A file written into the worktree's own `.bloop/` is invisible to `bin/job`, the board and `/bloop:auto`
+6. **Report format**: read `${CLAUDE_PLUGIN_ROOT}/references/report-style.md` before your first report
+7. **Language**: talk to the user in the language the user writes in. Everything written to disk is English
 
 ## Who owns which part of `deliver.md`
 
@@ -103,6 +104,18 @@ On success, set `STATUS: MERGED`, `MERGE: <short sha>` and `MERGED-AT: <YYYY-MM-
 Set `DEPLOYED-AT` and `DEPLOYED-BY` only once something really shipped. `DEPLOYED-BY` carries the name of whoever said yes, or `ci` when CI did it on merge. **Never write your own name there.**
 
 With no deploy at all, `STATUS` stays `MERGED`. That is an honest end state, not an unfinished one.
+
+### Refresh the product docs
+
+When the project has product docs, their capabilities, journeys and changelog just changed. Rewrite only the blocks a script owns:
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/docs"
+```
+
+It exits 1 with "does not exist yet" on a project without docs. That is not a failure: say nothing and carry on. When it names files it refreshed, say which ones, and that they wait to be committed with the next change. Never commit them to the base branch yourself.
+
+Run it after the merge and again after a deploy, because each one moves a capability: merged first, live after.
 
 ## Step 5 · Clean up the worktree
 

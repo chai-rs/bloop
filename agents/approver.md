@@ -46,7 +46,7 @@ When in doubt, escalate. An escalation costs a person a few minutes. A wrong app
 
 ## Write `decision.md`
 
-From `templates/decision.md`, at `.bloop/issues/<id>/decision.md`.
+From `templates/decision.md`, at `<issue folder>/decision.md`, where the issue folder is the absolute path `review` gave you, in the main checkout.
 
 The first line is `APPROVE` or `ESCALATE`. The second is `APPROVED-BY:`, which stays `none` unless a human has signed.
 
