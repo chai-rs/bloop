@@ -214,6 +214,9 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
   "concurrency": 2,
   "trustLevel": "supervised",
   "revertCeiling": 0.05,
+  "trustWindowDays": 30,
+  "trustPreviousDays": 30,
+  "trustMinLandings": 5,
   "autoBudget": 12
 }
 ```
@@ -225,6 +228,9 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
 | `concurrency` | How many agents run at once, in box 5 Review's lenses and in `fuzz-swarm` | 2 |
 | `trustLevel` | How far the loop may go without a human. See below | `supervised` |
 | `revertCeiling` | The share of landings that may be reverts before `bin/trust` says no | `0.05` |
+| `trustWindowDays` | How far back `bin/trust`'s window reaches from today | 30 |
+| `trustPreviousDays` | How long the window before it is | 30 |
+| `trustMinLandings` | How many landings a window needs before it counts at all | 5 |
 | `autoBudget` | How many skill runs one `/bloop:auto` call may make, across every issue it takes, before it stops and reports | 12 |
 
 **One number, used in two places.** `maxRounds` caps both the correction ladder in box 4 Build and the review rounds in box 5 Review. Two separate numbers would mean two things to remember and two to tune.
@@ -246,14 +252,21 @@ Raise it when two things are true at once: reverts are rare and stable, and box 
 **Both conditions are measured, not felt.**
 
 ```sh
-"$CLAUDE_PLUGIN_ROOT/bin/trust"
+"$CLAUDE_PLUGIN_ROOT/bin/trust" --for <the level asked for>
 ```
 
-It reads the base branch and prints the revert rate for the last window and the one before it, against `revertCeiling`. It exits 0 only when both windows are under the ceiling, which is what "rare **and** stable" means. One window with no landings is not evidence, so it exits non-zero as well. The script writes nothing.
+It reads the base branch and prints the revert rate of two windows, against `revertCeiling`, and whether each level's bar is met. It writes nothing.
+
+| Going up to | `bin/trust --for <level>` exits 0 when | Why that bar |
+| --- | --- | --- |
+| `trusted` | the window holds at least `trustMinLandings` landings and its revert rate is under `revertCeiling` | `trusted` never merges on its own. A person still sees every change before `main` does, so one good window is enough |
+| `autonomous` | both the window and the previous one do. Rare **and** stable | `autonomous` merges on its own, so a good month has to be followed by another |
+
+The window ends today and is `loop.trustWindowDays` long. The previous one sits right before it and is `loop.trustPreviousDays` long. Both default to 30. A window with fewer landings than `loop.trustMinLandings`, 5 by default, counts as no evidence either way: the minimum is what stops a short window from passing on luck. `--window`, `--previous`, `--days` and `--min` change them for one run.
 
 The second condition comes from `## Why the gate missed this` in `build.md`, which records every `[must]` that review caught and the gate let through.
 
-When the user asks to raise `trustLevel`, run `bin/trust`, quote its numbers, and say what the recent `## Why the gate missed this` lines show. **Never raise it because the loop has been quiet for a while**, and never raise it yourself.
+When the user asks to raise `trustLevel`, run `bin/trust --for <that level>`, quote its numbers, and say what the recent `## Why the gate missed this` lines show. **Never raise it because the loop has been quiet for a while**, and never raise it yourself.
 
 ### req 9 · task management
 

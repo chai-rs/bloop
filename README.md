@@ -92,7 +92,7 @@ bin/detect                       reads the repo, returns JSON: what exists, what
 bin/job                          reads .bloop/issues/, returns JSON: which box each issue is in and which skill runs next. --board builds the board view, --next names the issue auto takes
 bin/work                         creates the worktree and branch <type>/<issue-id>
 bin/gate                         runs checks.sh and keeps the raw output as evidence
-bin/trust                        measures the revert rate, which is the evidence for raising trustLevel
+bin/trust                        measures the revert rate over two windows. --for trusted or autonomous says whether that level's bar is met
 bin/ship                         box 6 Deliver's lever: sync, re-gate, push, merge
 bin/archive                      moves a closed issue into .bloop/archive/, in a commit holding only the move
 bin/status                       what the system can do right now: each requirement and journey, live or not

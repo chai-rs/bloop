@@ -12,7 +12,16 @@ Older configs name the levels `review-before-merge`, `merge-then-review` and `au
 
 ## Raising it
 
-Only a person changes `trustLevel`, outside any run, never an agent. Before it goes up, `bin/trust` has to exit 0, which means reverts were rare in this window and the one before it, and the recent `## Why the gate missed this` lines in `build.md` must show box 5 Review has stopped finding what the gate should have caught. **Never raise it because the loop has been quiet for a while.**
+Only a person changes `trustLevel`, outside any run, never an agent. Each level has its own bar in `bin/trust`:
+
+| Going up to | `bin/trust --for <level>` exits 0 when | Why that bar |
+| --- | --- | --- |
+| `trusted` | the window holds at least `trustMinLandings` landings and its revert rate is under `revertCeiling` | `trusted` never merges on its own. A person still sees every change before `main` does, so one good window is enough |
+| `autonomous` | both the window and the previous one do. Rare **and** stable | `autonomous` merges on its own, so a good month has to be followed by another |
+
+The window ends today and is `loop.trustWindowDays` long. The previous one sits right before it and is `loop.trustPreviousDays` long. Both default to 30. A window with fewer landings than `loop.trustMinLandings`, 5 by default, counts as no evidence either way: the minimum is what stops a short window from passing on luck. `--window`, `--previous`, `--days` and `--min` change them for one run.
+
+The recent `## Why the gate missed this` lines in `build.md` must also show box 5 Review has stopped finding what the gate should have caught. **Never raise it because the loop has been quiet for a while.**
 
 ## What `trusted` and `autonomous` answer
 
