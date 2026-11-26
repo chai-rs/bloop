@@ -7,6 +7,20 @@
 
 <Who this system creates value for, and how. One paragraph>
 
+## What makes it different
+
+Two to four lines. Each names something this system does that the usual alternative does not, in words a customer would use. `/bloop:docs` turns these into the product overview.
+
+- **<short name>** <one sentence: what it does, and why that matters to the person using it>
+
+## Goals
+
+Outcomes, not activities. A goal that could be met without anyone being better off is the wrong goal. `/bloop:report` judges health against these.
+
+| goal | key result | target | by | how it is measured |
+| --- | --- | --- | --- | --- |
+| G1 <outcome a person gets> | <the number that shows it> | <value> | <YYYY-MM-DD> | <where the number comes from> |
+
 ## Scope
 
 **v1 does**
@@ -34,6 +48,14 @@
 ## Functional requirements
 
 - FR-1 <what the system must be able to do>
+
+## Journeys
+
+What a person does from start to finish, and which requirements it needs. A journey is usable only when every FR in it is live. `/bloop:docs` shows each journey's status from this table.
+
+| journey | who | FRs |
+| --- | --- | --- |
+| J1 <what the person does, start to finish> | <who> | FR-1, FR-2 |
 
 ## Non-functional requirements
 
