@@ -53,6 +53,7 @@ Work in this order. Anything the user skips gets skipped and recorded, with what
 | 16 | the verify skill | `.claude/skills/verify/SKILL.md`, on a project with an interface |
 | 17 | fuzzing | the `fuzz` section, optional |
 | 18 | delivery | the `deliver` section |
+| 19 | product docs | the `docs` section, optional |
 
 Templates for every file live in the plugin's `templates/`. Copy and adjust to the answers. Never write one from scratch.
 
@@ -313,6 +314,36 @@ Store only `board`.
 ```json
 "handdraw": { "board": "brd_..." }
 ```
+
+### req 19 · product docs
+
+Optional. `/bloop:docs` writes the product documentation as Fumadocs-ready MDX, and `--serve` previews it. Without this section it uses the defaults below.
+
+```json
+"docs": {
+  "dir": "docs/product",
+  "baseUrl": "/docs",
+  "port": 4000,
+  "serveCommand": null,
+  "language": "en"
+}
+```
+
+| key | What it controls | Default |
+| --- | --- | --- |
+| `dir` | Where the MDX pages live | `docs/product` |
+| `baseUrl` | The path the project's Fumadocs site serves the docs at. Links between pages use it | `/docs` |
+| `port` | The port of the preview `--serve` starts | `4000` |
+| `serveCommand` | The project's own Fumadocs dev command. When set, `--serve` runs it instead of the preview | `null`, use the preview |
+| `language` | The language the pages are written in | `en` |
+
+Ask one thing: **does this project already have a Fumadocs site, or want one?**
+
+| # | Option | Why |
+| --- | --- | --- |
+| 1 | **The preview only** ← recommended | `--serve` builds one in `.bloop/docs-site/`, gitignored. Nothing to maintain. Good until the docs need to be public |
+| 2 | Point at the project's own site | Set `serveCommand`, and point its `source.config.ts` at `dir` with `defineDocs({ dir: 'docs/product' })`. Mermaid needs `remarkMdxMermaid` and a `Mermaid` component, as in the preview's `components/` |
+| 3 | Create a site in the repo | `npm create fumadocs-app`, then option 2. Only when the docs will be deployed |
 
 ## Done when
 
