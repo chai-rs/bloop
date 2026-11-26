@@ -1,0 +1,26 @@
+---
+title: Testing
+description: How to check that it works, the same way CI does
+---
+
+## One command
+
+```bash
+./checks.sh
+```
+
+`checks.sh` is the only gate. CI runs this same file, so a green run here is a green run there.
+
+## What it runs
+
+| Layer | Command | What it proves |
+| --- | --- | --- |
+| <lint · types · unit · integration · e2e> | <the real command> | <one line> |
+
+## Test data
+
+<Where fixtures, seeds and test accounts come from, and how to reset them. Never real credentials.>
+
+## Testing a single journey by hand
+
+<For the first live journey: the requests or screens in order, and what each should return.>

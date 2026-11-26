@@ -1,0 +1,141 @@
+---
+name: docs
+description: Writes and refreshes the product documentation in docs/product/, as Fumadocs-ready MDX - what the system is, what it can do right now, how to use it, how to test it, and how it works inside. Capability and journey status come from bin/status, never from a guess. --serve runs a Fumadocs preview to read it in. Use when the user says docs, product docs, document what it does, what can it do, write the docs, or preview the docs.
+---
+
+# docs
+
+**This skill belongs to no box.** It describes the product that the boxes built.
+
+**Output** `docs/product/`, a folder of `.mdx` pages and `meta.json` files that any Fumadocs site reads as is
+
+## Three modes
+
+| Command | What it does |
+| --- | --- |
+| `/bloop:docs` | Writes the docs when the folder does not exist, otherwise refreshes them |
+| `/bloop:docs --refresh` | Rewrites only the blocks a script owns. `deliver` and `retro` call this after a merge or a deploy |
+| `/bloop:docs --serve` | Starts a Fumadocs preview of the folder, so a person can read it |
+
+## Standing rules
+
+1. **Status comes from `bin/status`, through `bin/docs`.** Never write whether something is live, merged, flagged or planned yourself. A page that says "Live" for something that is not is worse than no page
+2. **Everything between `{/* bloop:managed <name> */}` and `{/* bloop:end <name> */}` belongs to `bin/docs`.** Never edit inside the markers. Everything outside them belongs to people once written: on a refresh, never rewrite prose a person may have changed
+3. **Every command you write in Getting started and Testing has been run.** Run it. A command you could not run gets the line `Not run: <why>` under it, never silence
+4. **Never invent a capability, an endpoint or a number.** Each fact traces to `ARCHITECTURE.md`, `openapi.yaml`, `docs/data-model.md`, `docs/adr/`, `checks.sh` or the code
+5. **Never leave a template placeholder.** A leftover `<...>` breaks the MDX compile, and `bin/docs --check` reports each one
+6. **Write for a reader who has never seen the project.** Plain words, the domain's own terms, no bloop jargon such as box, slice or gate
+7. **Report format**: read `${CLAUDE_PLUGIN_ROOT}/references/report-style.md` before your first report
+8. **Language**: talk to the user in the language the user writes in. The docs are English unless `docs.language` in `.bloop/config.json` says otherwise
+
+## The pages
+
+| Page | Answers | Written from | Owner |
+| --- | --- | --- | --- |
+| `index.mdx` | What it is, for whom, what makes it different, what works today | `## Business` `## What makes it different` `## Scope` · block `journeys-summary` | you, plus `bin/docs` |
+| `capabilities.mdx` | What it can do right now | block `capabilities`, then one line per live capability on how to use it | `bin/docs`, plus you |
+| `journeys.mdx` | What a person can do start to finish, and what is still missing | block `journeys` | `bin/docs`, plus you |
+| `getting-started.mdx` | How to run it and make a first request | README, AGENTS.md, package scripts, `openapi.yaml` | you |
+| `guides/<journey>.mdx` | How to do one journey, step by step | `## Journeys`, `openapi.yaml`, the code | you, one page per live or partly live journey |
+| `testing.mdx` | How to check it works, the way CI does | `checks.sh`, the `verification` section of `.bloop/config.json`, fixtures | you |
+| `architecture.mdx` | The pieces and how data moves | `## Dataflow` `## Modules` `## Tech stack`, `docs/adr/` | you |
+| `concepts/<concept>.mdx` | What each domain idea means, and its rules | `docs/data-model.md`, a glossary if AGENTS.md has one | you, one page per entity a reader must understand |
+| `api.mdx` | Every endpoint, and where to try it | `openapi.yaml`, and the API preview `contract` set up | you, only when `openapi.yaml` exists |
+| `changelog.mdx` | What shipped, newest first | block `changelog` | `bin/docs` |
+
+The templates are in `${CLAUDE_PLUGIN_ROOT}/templates/docs/`. They show the shape of each page, its frontmatter, and where its markers go.
+
+## Step 0 · Detect
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/status"
+```
+
+| What you find | What to do |
+| --- | --- |
+| `no ARCHITECTURE.md yet` | Box 1 Architecting never ran. Say to run `/bloop:init`, then stop |
+| `## What makes it different` or `## Journeys` missing from `ARCHITECTURE.md` | The project predates them. Ask the user the two questions `init` asks for them, then add both sections to `ARCHITECTURE.md` before writing a page |
+| `--serve` | Go to step 5 |
+| `--refresh` | Go to step 3 |
+| `docs.dir` in `.bloop/config.json` | Write there instead of `docs/product/` |
+
+## Step 1 · Lay out the folder, first time only
+
+Copy `templates/docs/` into the docs folder. Then:
+
+* Rename `guides/journey.mdx` to one file per journey, named after it in lowercase English with hyphens, such as `book-a-room.mdx`. Only journeys that are live or partly live get a guide
+* Rename `concepts/concept.mdx` to one file per concept the same way
+* Drop `api` from the root `meta.json` when there is no `openapi.yaml`, and write `api.mdx` when there is
+* Set `title` in the root `meta.json` to the project name
+
+Fumadocs reads the folder as it is: every page needs `title` and `description` in its frontmatter, `meta.json` orders the pages, `---Name---` in `pages` is a sidebar heading, and `...` means every remaining page.
+
+## Step 2 · Write the prose
+
+Fill every page you own from the sources in the table. Then:
+
+* **Links between pages** use the site path, `/docs/<page>`. When `docs.baseUrl` in `.bloop/config.json` is set, use that prefix instead. A relative link such as `./journeys` breaks on the index page
+* **Diagrams** are ` ```mermaid ` code blocks. Fumadocs renders them once the site has its Mermaid component, and the preview has it
+* **Run every command** in Getting started and Testing, and paste what it really printed where the page shows output
+
+## Step 3 · Fill the managed blocks
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/docs"
+```
+
+It rewrites every managed block from `bin/status` and names the files it changed. On `--refresh`, stop here and report.
+
+## Step 4 · Check
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/docs" --check
+```
+
+It exits 1 when a block is stale or a placeholder is left, and names each line. Fix every one, then run it again until it exits 0.
+
+## Step 5 · `--serve`
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/bin/docs-site"
+```
+
+It prints one line of JSON.
+
+| `own` | What to do |
+| --- | --- |
+| `true` | The project has a Fumadocs site of its own, named in `docs.serveCommand`. Start that command |
+| `false` | `bin/docs-site` prepared a preview in `.bloop/docs-site/`, gitignored, and installed it on the first run. Start the `command` it printed |
+
+**Start it as a server, not as a blocking command.**
+
+* When this session has a preview tool that starts servers from `.claude/launch.json`, add a `bloop-docs` entry there with the command and the `port`, start it, and open `url`
+* Otherwise run `bin/docs-site --run` in the background, and give the user `url`
+
+The preview reads the docs folder on every request. A person edits a page, reloads, and sees it. Say so in one line.
+
+Then check it yourself: open `url`, then the capabilities page, and confirm both render. A page that fails to compile shows its error there. Fix it in the page, never in the preview site.
+
+The preview is not the project's site. It has no search index beyond the defaults, no deploy, and the warning about dynamic filesystem access in its build output is expected.
+
+## Report
+
+**Docs · written** `docs/product/` · `<n>` pages · `bin/docs --check` ✓
+
+| Group | What you got |
+| --- | --- |
+| Product | index · capabilities · journeys, with `<n>` of `<n>` requirements live |
+| Use it | getting started · `<n>` guides |
+| Test it | testing, every command run |
+| How it works | architecture · `<n>` concepts |
+| Reference | api · changelog |
+
+**Not covered** what could not be written, and why: a journey with nothing live yet, a command that could not run
+**Next** `/bloop:docs --serve` to read it
+
+## Done when
+
+* `bin/docs --check` exits 0
+* Every page has `title` and `description` in its frontmatter
+* Every command in Getting started and Testing was run, or says why not
+* No status anywhere in the docs was written by hand

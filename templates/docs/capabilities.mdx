@@ -1,0 +1,28 @@
+---
+title: Capabilities
+description: What the system can do right now, and what is still coming
+---
+
+**Live** means merged, deployed and not behind a flag. Anything else is not usable yet, whatever its code looks like.
+
+{/* bloop:managed capabilities */}
+| Capability | Status | Since | Issues |
+| --- | --- | --- | --- |
+| <FR text> | <status> | <YYYY-MM-DD or —> | <issue ids> |
+
+As of `<main commit>`, last deploy `<date>` at `<commit>`.
+{/* bloop:end capabilities */}
+
+| Status | Meaning |
+| --- | --- |
+| Live | Merged, deployed, and not behind a flag |
+| Behind a flag | Shipped, but switched off by default |
+| Merged, not deployed | In the main branch, not yet in production |
+| Building | Planned and being built |
+| Planned | Accepted, not started |
+| Not started | A requirement nobody has picked up |
+| Rolled back | Shipped, then undone |
+
+## How to use each one
+
+<For each live capability: one line naming the endpoint, screen or command that does it, linking to its guide or the API reference.>

@@ -1,0 +1,139 @@
+#!/bin/sh
+# bloop · bin/docs
+#
+# Rewrites the bloop:managed blocks in the product docs from bin/status, and
+# nothing else. Prose outside the markers belongs to people and to the docs
+# skill, and is never touched here.
+#
+#   bin/docs              refresh every managed block, say which files changed
+#   bin/docs --check      exit 1 when a block is stale or a placeholder is left, change nothing
+#
+# The docs folder is docs.dir in .bloop/config.json, docs/product by default.
+set -u
+
+ROOT=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+[ -n "$ROOT" ] || ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT" || exit 1
+
+CHECK=0
+case "${1:-}" in
+  --check) CHECK=1 ;;
+  '') ;;
+  *) printf 'usage: bin/docs [--check]\n' >&2; exit 64 ;;
+esac
+
+DIR=$(tr -d '\n' < .bloop/config.json 2>/dev/null \
+  | sed -n 's/.*"docs"[[:space:]]*:[[:space:]]*{[^}]*"dir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+[ -n "$DIR" ] || DIR=docs/product
+[ -d "$DIR" ] || { printf 'bloop: %s does not exist yet, run /bloop:docs to write it\n' "$DIR" >&2; exit 1; }
+
+TMP=$(mktemp -d 2>/dev/null || mktemp -d -t bloop) || exit 1
+trap 'rm -rf "$TMP"' EXIT
+
+"$(dirname "$0")/status" > "$TMP/status.json" 2>/dev/null \
+  || { printf 'bloop: bin/status failed, run it on its own to see why\n' >&2; exit 1; }
+
+# One awk program renders every block. bin/status writes one object per line
+# and strips quotes out of its strings, so a plain key lookup is enough.
+awk -v out="$TMP" '
+function get(line, key,   re, i, s) {
+  re = "\"" key "\": "
+  i = index(line, re); if (!i) return ""
+  s = substr(line, i + length(re))
+  if (substr(s, 1, 1) == "\"") { s = substr(s, 2); return substr(s, 1, index(s, "\"") - 1) }
+  if (substr(s, 1, 1) == "[")  { s = substr(s, 2, index(s, "]") - 2); gsub(/"/, "", s); gsub(/,/, ", ", s); return s }
+  match(s, /^[^,} ]+/); s = substr(s, 1, RLENGTH); return (s == "null") ? "" : s
+}
+function word(s) {
+  if (s == "live") return "Live"
+  if (s == "flagged") return "Behind a flag"
+  if (s == "merged") return "Merged, not deployed"
+  if (s == "building") return "Building"
+  if (s == "planned") return "Planned"
+  if (s == "unpicked") return "Not started"
+  if (s == "rolled-back") return "Rolled back"
+  if (s == "partial") return "Partly live"
+  if (s == "not-yet") return "Not yet"
+  return s
+}
+function dash(s) { return (s == "") ? "—" : s }
+/"asOf":/ { main = get($0, "main"); last = get($0, "lastDeploy"); lastsha = get($0, "lastDeployCommit") }
+/^  "frs":/      { sec = "frs" }
+/^  "journeys":/ { sec = "journeys" }
+/^  "shipped":/  { sec = "shipped" }
+/^    \{/ {
+  if (sec == "frs") {
+    n++; fid[n] = get($0, "id"); ftext[get($0, "id")] = get($0, "text")
+    caps = caps sprintf("| %s | %s | %s | %s |\n", get($0, "text"), word(get($0, "status")), dash(get($0, "liveSince")), dash(get($0, "issues")))
+  }
+  if (sec == "journeys") {
+    miss = get($0, "notLive"); m = ""
+    k = split(miss, ids, /, /)
+    for (i = 1; i <= k; i++) if (ids[i] != "") m = m (m == "" ? "" : "; ") ((ids[i] in ftext) ? ftext[ids[i]] : ids[i])
+    jr = jr sprintf("| %s | %s | %s | %s |\n", get($0, "text"), get($0, "who"), word(get($0, "status")), dash(m))
+    js = js sprintf("| %s | %s |\n", get($0, "text"), word(get($0, "status")))
+  }
+  if (sec == "shipped") {
+    d = get($0, "mergedAt"); if (d == "") d = "undated"
+    fr = get($0, "fr"); kind = get($0, "kind")
+    what = (fr != "") ? fr : ((kind == "bug") ? "bug fix" : "change")
+    if (d != lastd) { cl = cl sprintf("%s## %s\n\n", (cl == "" ? "" : "\n"), d); lastd = d }
+    cl = cl sprintf("- **%s** %s · %s · `%s`\n", get($0, "title"), word(get($0, "status")), what, get($0, "merge"))
+  }
+}
+END {
+  f = out "/capabilities"
+  printf "| Capability | Status | Since | Issues |\n| --- | --- | --- | --- |\n%s", caps > f
+  printf "\nAs of `%s`, last deploy %s.\n", main, (last == "" ? "none yet" : last " at `" lastsha "`") > f
+  f = out "/journeys"
+  if (jr == "") printf "No journeys in ARCHITECTURE.md yet. Run /bloop:init to add them.\n" > f
+  else printf "| Journey | Who | Status | Still missing |\n| --- | --- | --- | --- |\n%s", jr > f
+  f = out "/journeys-summary"
+  if (js == "") printf "No journeys in ARCHITECTURE.md yet.\n" > f
+  else printf "| Journey | Status |\n| --- | --- |\n%s", js > f
+  f = out "/changelog"
+  if (cl == "") printf "Nothing has shipped yet.\n" > f
+  else printf "%s", cl > f
+}' "$TMP/status.json"
+
+# Replace what sits between the markers in every page that has them
+CHANGED=''
+STALE=0
+for page in $(grep -rl 'bloop:managed' "$DIR" 2>/dev/null | sort); do
+  awk -v out="$TMP" '
+    /^\{\/\* bloop:managed [a-z-]+ \*\/\}$/ {
+      print; name = $3; skip = 1
+      f = out "/" name
+      while ((getline line < f) > 0) print line
+      close(f); next
+    }
+    /^\{\/\* bloop:end [a-z-]+ \*\/\}$/ { skip = 0 }
+    !skip { print }
+  ' "$page" > "$TMP/page"
+  if ! cmp -s "$page" "$TMP/page"; then
+    STALE=1
+    CHANGED="$CHANGED $page"
+    [ "$CHECK" = 1 ] || cp "$TMP/page" "$page"
+  fi
+done
+
+# A template placeholder left in a page, such as <project name>, breaks the MDX
+# compile. JSX has attributes with =, code fences are skipped, so neither counts.
+PLACEHOLDERS=$(for page in $(find "$DIR" -name '*.mdx' | sort); do
+  awk -v f="$page" '
+    /^```/ { fence = !fence; next }
+    fence || /^\{\/\*/ { next }
+    /<[A-Za-z][^>=]* [^>=]*>/ { printf "  %s:%d %s\n", f, NR, $0 }
+  ' "$page"
+done)
+
+if [ "$CHECK" = 1 ]; then
+  if [ -n "$PLACEHOLDERS" ]; then
+    printf 'bloop: unfilled placeholders, each one breaks the page:\n%s\n' "$PLACEHOLDERS"
+    exit 1
+  fi
+  [ "$STALE" = 0 ] && { printf 'bloop: docs are current\n'; exit 0; }
+  printf 'bloop: stale:%s\n' "$CHANGED"; exit 1
+fi
+[ -n "$PLACEHOLDERS" ] && printf 'bloop: unfilled placeholders, each one breaks the page:\n%s\n' "$PLACEHOLDERS" >&2
+if [ -n "$CHANGED" ]; then printf 'bloop: refreshed:%s\n' "$CHANGED"; else printf 'bloop: docs were already current\n'; fi
