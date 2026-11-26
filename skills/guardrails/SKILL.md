@@ -195,7 +195,7 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
   "maxRounds": 3,
   "baseBranch": "main",
   "concurrency": 2,
-  "trustLevel": "review-before-merge",
+  "trustLevel": "supervised",
   "revertCeiling": 0.05,
   "autoBudget": 12
 }
@@ -206,7 +206,7 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
 | `maxRounds` | How many times box 4 Build may correct, and how many review rounds box 5 Review allows, before a human has to look | 3 |
 | `baseBranch` | What `bin/work` cuts a branch from | `main` |
 | `concurrency` | How many agents run at once, in box 5 Review's lenses and in `fuzz-swarm` | 2 |
-| `trustLevel` | How far the loop may go without a human. See below | `review-before-merge` |
+| `trustLevel` | How far the loop may go without a human. See below | `supervised` |
 | `revertCeiling` | The share of landings that may be reverts before `bin/trust` says no | `0.05` |
 | `autoBudget` | How many skill runs one `/bloop:auto` call may make, across every issue it takes, before it stops and reports | 12 |
 
@@ -216,9 +216,11 @@ Five numbers the whole plugin reads, so nobody hardcodes them.
 
 | Level | What it allows |
 | --- | --- |
-| `review-before-merge` | The default. Everything goes through box 5 Review before it merges |
-| `merge-then-review` | The agent may merge, and main gets reviewed afterwards |
-| `autonomous` | `fuzz-swarm` may run the whole loop itself. A human still confirms anything that cannot be undone |
+| `supervised` | The default. Every question waits for a person, the merge included |
+| `trusted` | `/bloop:auto` answers the routine questions itself, such as confirming a restate or pushing. The merge still waits for a person |
+| `autonomous` | As `trusted`, and a merge happens on its own when every condition in `deliver` holds. `RISK: high` never does |
+
+`${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` lists exactly which questions each level answers, which none ever does, and how each answer is recorded. Older configs say `review-before-merge`, `merge-then-review` or `autonomous`. Read them as `supervised`, `trusted` and `autonomous`, and write the new name the next time this section is rewritten.
 
 **Only a human moves this up.** An agent may never raise it, the same rule as `CONFIRMED` and `APPROVED-BY`.
 

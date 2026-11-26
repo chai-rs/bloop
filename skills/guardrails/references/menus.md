@@ -330,9 +330,9 @@ Four numbers, asked as one question with sensible defaults rather than four prom
 
 | # | Option | What it means |
 | --- | --- | --- |
-| 1 | **Review before merge** ← recommended | Everything passes box 5 Review before it merges |
-| 2 | Merge, then review | The agent may merge, and main is reviewed afterwards |
-| 3 | Autonomous | `fuzz-swarm` may run the whole loop. A human still confirms anything irreversible |
+| 1 | **Supervised** ← recommended | Every question waits for a person, the merge included |
+| 2 | Trusted | `/bloop:auto` answers routine questions itself. The merge still waits for a person |
+| 3 | Autonomous | As trusted, and low-risk work merges on its own when every condition in `deliver` holds |
 
 Start at 1 on any project that has not shipped yet. Moving up later needs evidence from `bin/trust`, not a feeling, and only the user may do it.
 

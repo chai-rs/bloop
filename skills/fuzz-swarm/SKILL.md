@@ -9,7 +9,7 @@ description: Sends one worker per attack angle at code that already merged, in p
 
 It is a **swarm**, not a loop: several workers run at once, each attacking the same target from a different angle, and the findings merge into one report. A worker that cannot prove its finding by running something has found nothing.
 
-It is the third rung of the trust ladder. At `loop.trustLevel` of `review-before-merge` it does one thing: **opens issues**. Nothing else.
+Below `loop.trustLevel` of `autonomous` it does one thing: **opens issues**. Nothing else.
 
 **Output** `.bloop/fuzz/<YYYY-MM-DD>-<target>.md`, plus one issue per finding
 
@@ -112,9 +112,9 @@ The command is already a feedback loop that goes red, so `/bloop:debug <issue-id
 
 | `loop.trustLevel` | What changes |
 | --- | --- |
-| `review-before-merge` | Open issues. Nothing else. This is the default |
-| `merge-then-review` | Same. Fuzzing does not merge anything |
-| `autonomous` | May carry a finding through boxes 2 to 5 itself, one at a time. A human still confirms the merge, and anything that cannot be undone |
+| `supervised` | Open issues. Nothing else. This is the default |
+| `trusted` | Same. Fuzzing does not move work through the boxes |
+| `autonomous` | Hands each issue it opened to `/bloop:auto`, one at a time, so it goes through boxes 2 to 6 at that level. Merges follow `deliver`'s conditions, and anything that cannot be undone still waits for a person |
 
 **Even at `autonomous` it never skips a box.** The levels change who waits for whom, never which gates run.
 

@@ -18,7 +18,7 @@ description: Drives issues through bloop on their own, from box 2 Issue/Story/Ta
 
 ## Standing rules
 
-1. **Never sign for a person.** `CONFIRMED`, `APPROVED` on a plan that is not low risk, `APPROVED-BY`, a push, a merge that fails any of the four conditions, a deploy, a rollback. These change only after a person said yes **in this session**, and you pass on their exact words. Never answer a question on their behalf, however obvious the answer looks
+1. **Never sign for a person.** A question waits for a person unless `loop.trustLevel` answers it, and `${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` is the only list of what a level answers. Read it before the first run. A person's yes counts only when given **in this session**, and you pass on their exact words. Never answer a question on anyone's behalf because the answer looks obvious
 2. **`bin/job` picks the skill.** Run the one in its `skill` field and nothing else. Never skip a box, never run two boxes at once, never choose a skill yourself
 3. **Never trust a report.** After every run, read `bin/job` again. Only a change in `state` counts as progress
 4. **One issue at a time**, in both modes
@@ -34,13 +34,15 @@ description: Drives issues through bloop on their own, from box 2 Issue/Story/Ta
 
 Read `loop.autoBudget` from `.bloop/config.json`. It caps how many skill runs one invocation makes, across every issue in `--next` mode. Without it, use 12.
 
+Read `loop.trustLevel` too, `supervised` when it is missing. An old name counts as its new one: `review-before-merge` is `supervised`, `merge-then-review` is `trusted`. Say the level in the first line of your report, so the person knows what was answered without them.
+
 | What you find | What to do |
 | --- | --- |
 | `no .bloop/config.json yet` | Box 1 Architecting never ran. Say to run `/bloop:init`, then stop |
 | exit code 2 | The provider is not local. Say so, then stop |
 | An id that `bin/job <id>` cannot find | Say so, then stop. Never open an issue yourself. That is `backlog` |
 
-Copy `templates/auto.md` into the issue folder the first time you touch an issue. Set both header lines to `none` and empty both lists. The template shows a filled example. `bin/job` reads `WAITING`, so a copied example question would put the issue in `0-waiting` by mistake.
+Copy `templates/auto.md` into the issue folder the first time you touch an issue. Set both header lines to `none` and empty every table and list. The template shows a filled example. `bin/job` reads `WAITING`, so a copied example question would put the issue in `0-waiting` by mistake.
 
 ## Step 1 · Read the issue
 
@@ -72,7 +74,14 @@ Brief a subagent with exactly this, filling in the two names:
 >
 > Never answer a question for the user. Never write a line the skill reserves for a person unless the user's words you were sent say yes to it.
 
-When a skill needs a person, wherever it runs:
+When a skill needs a person, wherever it runs, first look the question up in `references/trust-levels.md`:
+
+| The question is | At `trusted` or `autonomous` | At `supervised` |
+| --- | --- | --- |
+| In the level's list | Answer it as the list says: yes, or the recommended option. Pass `trustLevel <level> answers: <the answer>` back to the skill, and add a row to `## Answered by trust level` in `auto.md` | Ask, as below |
+| Not in the list, or in "What no level answers" | Ask, as below | Ask, as below |
+
+Asking depends on the mode:
 
 | Mode | What to do |
 | --- | --- |

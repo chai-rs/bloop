@@ -61,7 +61,7 @@ An empty rollback section means nobody knows how to undo this. Say that to the u
 
 ## Step 2 · May this merge without asking?
 
-**All four, or a person merges it.**
+**All five, or a person merges it.**
 
 | Condition | Where you check it |
 | --- | --- |
@@ -69,6 +69,7 @@ An empty rollback section means nobody knows how to undo this. Say that to the u
 | The gate passed **after** the sync | the `gate` field from step 1 |
 | `bin/trust` exits 0 | run it, and quote its numbers |
 | Nothing in `## Context` touches a protected path | `spec.md`, against `.claude/settings.json` |
+| `loop.trustLevel` is `autonomous` | `.bloop/config.json`. Below it, every merge waits for a person. An old name counts as its new one, see `${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` |
 
 **`RISK: high` is refused whatever the config says.** It is a floor, not a setting.
 
@@ -82,13 +83,13 @@ Both reach outside this machine, so both are separate calls.
 "$CLAUDE_PLUGIN_ROOT/bin/ship" <issue-id> --push
 ```
 
-**Ask before this one.** Say which branch, how many commits, and, when `deliver.sync` is `rebase`, that the push rewrites the branch and detaches any open review comments from their commits. If the PR has unresolved comments, say so plainly and let the user decide.
+**Ask before this one**, unless `/bloop:auto` passes you its trust level's answer as `references/trust-levels.md` allows. Say which branch, how many commits, and, when `deliver.sync` is `rebase`, that the push rewrites the branch and detaches any open review comments from their commits. If the PR has unresolved comments, say so plainly and let the user decide.
 
 ```bash
 "$CLAUDE_PLUGIN_ROOT/bin/ship" <issue-id> --merge
 ```
 
-With all four conditions met, run it and report. Otherwise ask first, in one sentence naming the condition that failed.
+With all five conditions met, run it and report. Otherwise ask first, in one sentence naming the condition that failed.
 
 It uses `gh pr merge` with `git.mergeStyle` when there is an origin and `gh` is installed, and merges locally with `--no-ff` otherwise. A local merge is a normal outcome on a project with no remote, not a fallback to apologise for.
 

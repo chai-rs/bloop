@@ -147,7 +147,7 @@ Show the user `## What we will do` and `## What we will not do`, and ask one que
 * Right → change the first line of `restate.md` to `CONFIRMED: yes` and the box is done
 * Not right → ask why, then rewrite `restate.md`. `CONFIRMED` stays `no`
 
-**Never set `CONFIRMED: yes` yourself**, however sure you are. That line is a human signature.
+**Never set `CONFIRMED: yes` yourself**, however sure you are. That line is a human signature. The one exception: when `/bloop:auto` passes you `trustLevel <level> answers: yes`, write `CONFIRMED: yes` with `CONFIRMED-BY: trustLevel <level>` on the line under it, as `${CLAUDE_PLUGIN_ROOT}/references/trust-levels.md` says.
 
 ## Step 6 · Leaving the box
 
