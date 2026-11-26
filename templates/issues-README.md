@@ -50,6 +50,10 @@ Two more files can sit in an issue folder:
 * `issue.md` carries `KIND: bug` or `KIND: request` on its second line. A `bug` with no finished `debug.md` goes to `/bloop:debug` before `restate`
 * `auto.md` is written by `/bloop:auto`. Its first line, `WAITING:`, holds a question a run left for a person. While it is not `none`, the issue sits in `0-waiting` on the board and `--next` skips it
 
+## Where issue files live
+
+Only in the main checkout. Code is written in a worktree under `.worktrees/<id>/`, but every file of the issue folder is written here, so `bin/job`, the board and `/bloop:auto` see each change the moment it happens. `bin/job --dir <id>` prints the folder's absolute path from anywhere, a worktree included.
+
 ## The board, and the archive
 
 Issue folders never move while the work is open. A folder moved on two branches does not merge, and the issue ends up in both places.

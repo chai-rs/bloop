@@ -75,6 +75,9 @@ A clone added with `./path/to/your/clone` loads in place. `git pull` there, then
 /bloop:board         rebuild the issue board by hand, and see what waits on you
 /bloop:auto <id>     run one issue through every box, asking you only where a person must decide
 /bloop:auto --next   work through the board issue by issue, leaving every question for you at the end
+/bloop:docs          write the product docs in docs/product: what it is, what it can do, how to use and test it
+/bloop:docs --serve  preview those docs in a local Fumadocs site
+/bloop:report        how the work is going, with numbers. --proposal adds the decisions to make
 ```
 
 `init` reads the repo before asking anything. If the repo already has something set up, it skips that part and reports what is left.
@@ -91,6 +94,9 @@ bin/gate                         runs checks.sh and keeps the raw output as evid
 bin/trust                        measures the revert rate, which is the evidence for raising trustLevel
 bin/ship                         box 6 Deliver's lever: sync, re-gate, push, merge
 bin/archive                      moves a closed issue into .bloop/archive/, in a commit holding only the move
+bin/status                       what the system can do right now: each requirement and journey, live or not
+bin/docs                         fills the managed blocks of the product docs from bin/status, --check finds stale ones
+bin/docs-site                    prepares the Fumadocs preview behind /bloop:docs --serve
 bin/metrics                      DORA and our own numbers, read from the issue folders
 agents/comment-cleanser.md       hunts comments, and may only touch comments
 agents/reviewer-code.md          box 5 Review: correctness, simplicity, repo conventions
@@ -109,6 +115,9 @@ templates/adr.md                 one architectural decision, append-only
 templates/fuzz.md                a fuzzing run and what it found
 templates/debug.md               a debugging run: the loop, the hypotheses, the root cause
 templates/auto.md                what /bloop:auto ran on one issue, and the question it is waiting on
+templates/docs/                  one MDX page per question the product docs answer, with Fumadocs frontmatter and meta.json
+templates/docs-site/             the Fumadocs preview site, copied into .bloop/docs-site/ on first --serve
+templates/report.md              a status report, with where each number comes from
 templates/deliver.md             the delivery run, and what a rollback would take
 templates/retro.md               lessons turned into guardrails, with the numbers
 skills/init                      box 1 Architecting: detect, business, skeleton
@@ -135,6 +144,8 @@ skills/retro                     box 6 Deliver: lessons into guardrails, then cl
 skills/fuzz-swarm                outside the boxes: fuzz merged code, open an issue per finding
 skills/board                     outside the boxes: rebuild the board, report what waits on a person
 skills/auto                      outside the boxes: run the skill bin/job names, state by state, stop where a person decides
+skills/docs                      outside the boxes: product docs as Fumadocs-ready MDX, and a preview
+skills/report                    outside the boxes: a status report or a proposal, every number from a script
 templates/                       starting files the skills copy, including external/README.md
 docs/                            mermaid diagrams of each bin script
 drafts/                          decision records. Read before changing a skill
