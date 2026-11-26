@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { getSource } from '@/lib/source';
 import { getMDXComponents } from '@/components/mdx';
+import { OpenAPIPage } from '@/components/api-page';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +11,17 @@ export default async function Page(props: { params: Promise<{ slug?: string[] }>
   const source = await getSource();
   const page = source.getPage(params.slug);
   if (!page) notFound();
+
+  if ('type' in page && page.type === 'openapi') {
+    return (
+      <DocsPage full>
+        <DocsTitle>{page.data.title}</DocsTitle>
+        <DocsBody>
+          <OpenAPIPage {...page.data.getOpenAPIPageProps()} />
+        </DocsBody>
+      </DocsPage>
+    );
+  }
 
   const { render } = await page.data.load();
   const { body, toc } = await render(getMDXComponents());
