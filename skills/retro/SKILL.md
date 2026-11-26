@@ -48,6 +48,8 @@ Copy `templates/retro.md`. The table is the whole point of the file.
 
 **Write the change, then put it in the table.** A row describing something you plan to do is a plan, not a guardrail, and the next issue will hit the same problem.
 
+A lesson that is a rule about how code is written, such as "never call the db from a handler", goes through `/bloop:rule`, which picks the strongest tool that can enforce it and proves it bites. Put its id in the row.
+
 A problem the gate could never have caught, such as a product decision, still gets a row saying so at the `human` rung.
 
 ## Step 2 · Repeated problems get an issue
